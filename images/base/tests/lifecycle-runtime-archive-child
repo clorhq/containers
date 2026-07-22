@@ -1,0 +1,9 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+trap 'printf "term\n" >>/state/archive-child-signals; exit 0' TERM
+trap 'printf "int\n" >>/state/archive-child-signals; exit 0' INT
+printf '%s' "$$" >/state/archive-child.pid
+sleep 0.6

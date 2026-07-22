@@ -50,6 +50,13 @@ jobs:
           outputs: type=image,name=ghcr.io/clorhq/software-development-base,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=base-${{ matrix.arch }}
+      - name: Test lifecycle signals through the container runtime
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          IMAGE="ghcr.io/clorhq/software-development-base@${IMAGE_DIGEST}"
+          docker pull "${IMAGE}"
+          bash images/base/tests/lifecycle-container "${IMAGE}"
       - name: Export digest
         run: |
           mkdir --parents /tmp/digests

@@ -10,7 +10,12 @@ set -o xtrace
 SPACE_USER="${CLOR_SPACE_USER:-user}"
 SPACE_HOME="${CLOR_SPACE_HOME:-/home/user}"
 SPACE_DIRECTORY="${CLOR_SPACE_DIRECTORY:-${SPACE_HOME}}"
-SPACE_PATH="${SPACE_HOME}/.local/bin:${SPACE_HOME}/go/bin:${SPACE_HOME}/.npm-global/bin:${PATH}"
+SPACE_PATH_PREFIX="${CLOR_SPACE_PATH_PREFIX:-}"
+SPACE_PATH="${SPACE_HOME}/.local/bin:${SPACE_HOME}/go/bin:${SPACE_HOME}/.npm-global/bin"
+if [[ -n "${SPACE_PATH_PREFIX}" ]]; then
+    SPACE_PATH="${SPACE_PATH}:${SPACE_PATH_PREFIX}"
+fi
+SPACE_PATH="${SPACE_PATH}:${PATH}"
 SPACE_PLAYWRIGHT_BROWSERS_PATH="${SPACE_HOME}/.cache/ms-playwright"
 REPOSITORY_URL="${CLOR_REPOSITORY_URL:-}"
 REPOSITORY_BRANCH="${CLOR_REPOSITORY_BRANCH:-}"
@@ -21,12 +26,18 @@ SETUP_FINGERPRINT_FILE="/var/lib/clor/setup-fingerprint"
 SERVICES_DIRECTORY="/etc/service"
 LOGS_DIRECTORY="/var/log"
 READY_FILE="/run/clor/ready"
+LIFECYCLE_DIRECTORY="/run/clor/lifecycle"
+ARCHIVE_DIRECTORY_FILE="${LIFECYCLE_DIRECTORY}/archive-directory"
+WORKLOAD_STARTED_FILE="${LIFECYCLE_DIRECTORY}/workload-started"
+SETUP_SCRIPT_FILE="${LIFECYCLE_DIRECTORY}/setup-script"
 # Must match spacespec.CredentialsReadyFile: the space daemon writes this
 # marker after its first credential pass in every outcome, and tab services
 # wait on it (bounded) before starting their agents.
 CREDENTIALS_READY_FILE="/run/clor/space-daemon/credentials-ready"
 CREDENTIALS_READY_TIMEOUT_SECONDS="20"
+READINESS_TIMEOUT_SECONDS="300"
 MAX_NETWORK_ATTEMPTS="5"
+declare -a READINESS_PORTS=(6000)
 
 bootstrap_error() {
     printf 'bootstrap: %s\n' "$*" >&2
@@ -324,12 +335,46 @@ write_setup_fingerprint() {
     fi
 }
 
+prepare_setup_script() {
+    local decode_succeeded="true"
+    local tracing_enabled="false"
+    local temporary_file
+
+    prepare_lifecycle_metadata
+    temporary_file="$(mktemp "${LIFECYCLE_DIRECTORY}/setup-script.tmp.XXXXXX")"
+
+    if [[ "$-" == *x* ]]; then
+        tracing_enabled="true"
+        set +o xtrace
+    fi
+    if ! printf '%s' "${CLOR_SETUP_SCRIPT_BASE64:-}" |
+        base64 --decode >"${temporary_file}"; then
+        decode_succeeded="false"
+    fi
+    unset -- CLOR_SETUP_SCRIPT_BASE64 CLOR_ARCHIVE_SCRIPT_BASE64
+    if [[ "${tracing_enabled}" == "true" ]]; then
+        set -o xtrace
+    fi
+    if [[ "${decode_succeeded}" != "true" ]]; then
+        rm --force "${temporary_file}"
+        bootstrap_error "CLOR_SETUP_SCRIPT_BASE64 is not valid Base64"
+        return 1
+    fi
+    chown "${SPACE_USER}:${SPACE_USER}" "${temporary_file}"
+    chmod 0400 "${temporary_file}"
+    mv --force "${temporary_file}" "${SETUP_SCRIPT_FILE}"
+}
+
+cleanup_setup_script() {
+    rm --force "${SETUP_SCRIPT_FILE}"
+}
+
 run_setup_script() {
     local repository_destination="$1"
     local fingerprint="${CLOR_BOOTSTRAP_FINGERPRINT:-}"
     local working_directory="${SPACE_HOME}"
 
-    if [[ -z "${CLOR_SETUP_SCRIPT:-}" ]]; then
+    if [[ ! -s "${SETUP_SCRIPT_FILE}" ]]; then
         return 0
     fi
     if [[ -f "${SETUP_FINGERPRINT_FILE}" ]] &&
@@ -340,9 +385,8 @@ run_setup_script() {
         working_directory="${repository_destination}"
     fi
 
-    # Bash exposes only -c for executing a command string.
     if ! (cd "${working_directory}" &&
-        as_space_user bash --login -c "${CLOR_SETUP_SCRIPT}"); then
+        as_space_user bash --login "${SETUP_SCRIPT_FILE}"); then
         bootstrap_error "setup script failed in '${working_directory}'; readiness withheld so the failure surfaces"
         return 1
     fi
@@ -357,7 +401,7 @@ clear_managed_services() {
     # The trailing slash traverses Debian runit's /etc/service symlink.
     # These find predicates have no long forms.
     find "${SERVICES_DIRECTORY}/" -mindepth 1 -maxdepth 1 \
-        \( -name code-server -o -name space-daemon -o -name 'tab-*' \) \
+        \( -name code-server -o -name readiness -o -name space-daemon -o -name 'tab-*' \) \
         -exec rm --recursive --force -- {} +
 }
 
@@ -483,6 +527,13 @@ generate_tab_service() {
         bootstrap_error "${port_variable} must contain a port"
         return 1
     fi
+    if [[ ! "${tab_port}" =~ ^[0-9]+$ ]] ||
+        ((10#${tab_port} < 1 || 10#${tab_port} > 65535)); then
+        bootstrap_error "${port_variable} must contain a valid TCP port"
+        return 1
+    fi
+
+    READINESS_PORTS+=("${tab_port}")
 
     mkdir --parents "${tab_working_directory}"
     chown "${SPACE_USER}:${SPACE_USER}" "${tab_working_directory}"
@@ -557,11 +608,64 @@ generate_tab_services() {
     done < <(list_variables '^CLOR_TAB_.*_COMMAND$')
 }
 
+generate_readiness_service() {
+    local service_directory="${SERVICES_DIRECTORY}/readiness"
+    local quoted_ports=""
+    local port
+
+    if [[ -d "${SERVICES_DIRECTORY}/desktop-vnc" ]]; then
+        READINESS_PORTS+=(5900)
+    fi
+    if [[ -d "${SERVICES_DIRECTORY}/desktop-web" ]]; then
+        READINESS_PORTS+=(6080)
+    fi
+    for port in "${READINESS_PORTS[@]}"; do
+        printf -v quoted_ports '%s %q' "${quoted_ports}" "${port}"
+    done
+
+    mkdir --parents "${service_directory}"
+    cat >"${service_directory}/run" <<RUN
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+READY_FILE=${READY_FILE@Q}
+SERVICE_DIRECTORY=${service_directory@Q}
+TIMEOUT_SECONDS=${READINESS_TIMEOUT_SECONDS@Q}
+PORTS=(${quoted_ports})
+
+rm --force "\${READY_FILE}"
+deadline="\$((SECONDS + TIMEOUT_SECONDS))"
+while ((SECONDS < deadline)); do
+    listening="true"
+    for port in "\${PORTS[@]}"; do
+        if ! nc -z 127.0.0.1 "\${port}"; then
+            listening="false"
+            break
+        fi
+    done
+    if [[ "\${listening}" == "true" ]]; then
+        : >"\${READY_FILE}"
+        : >"\${SERVICE_DIRECTORY}/down"
+        exit 0
+    fi
+    sleep 1
+done
+printf 'bootstrap: managed services did not become ready within %s seconds\n' \
+    "\${TIMEOUT_SECONDS}" >&2
+: >"\${SERVICE_DIRECTORY}/down"
+exit 1
+RUN
+    chmod 0755 "${service_directory}/run"
+}
+
 generate_services() {
     clear_managed_services
     generate_space_daemon_service
     generate_code_server_service
     generate_tab_services
+    generate_readiness_service
 }
 
 clear_sensitive_environment() {
@@ -578,9 +682,46 @@ mark_ready() {
     : >"${READY_FILE}"
 }
 
+prepare_lifecycle_metadata() {
+    mkdir --parents "${LIFECYCLE_DIRECTORY}"
+    chown root:root "${LIFECYCLE_DIRECTORY}"
+    chmod 0755 "${LIFECYCLE_DIRECTORY}"
+}
+
+write_lifecycle_file() {
+    local destination="$1"
+    local contents="$2"
+    local temporary_file
+
+    prepare_lifecycle_metadata
+    temporary_file="$(mktemp "${LIFECYCLE_DIRECTORY}/metadata.tmp.XXXXXX")"
+    printf '%s' "${contents}" >"${temporary_file}"
+    chown root:root "${temporary_file}"
+    chmod 0644 "${temporary_file}"
+    mv --force "${temporary_file}" "${destination}"
+}
+
+write_archive_directory() {
+    local repository_destination="$1"
+    local working_directory="${SPACE_HOME}"
+
+    if [[ -n "${repository_destination}" ]]; then
+        working_directory="${repository_destination}"
+    fi
+    # Bash pwd has no long option and does not accept an option terminator.
+    working_directory="$(cd -- "${working_directory}" && pwd -P)"
+    write_lifecycle_file "${ARCHIVE_DIRECTORY_FILE}" "${working_directory}"
+}
+
+mark_workload_started() {
+    write_lifecycle_file "${WORKLOAD_STARTED_FILE}" ""
+}
+
 handoff() {
     if (($# > 0)); then
         cd "${SPACE_HOME}"
+        mark_ready
+        mark_workload_started
         exec gosu "${SPACE_USER}" env \
             HOME="${SPACE_HOME}" \
             USER="${SPACE_USER}" \
@@ -590,28 +731,28 @@ handoff() {
             "$@"
     fi
     # runsvdir has no long spelling for -P.
+    mark_workload_started
     exec runsvdir -P "${SERVICES_DIRECTORY}"
 }
 
 main() {
     local repository_destination
-    local setup_succeeded="true"
 
     clear_readiness
+    prepare_setup_script
+    trap cleanup_setup_script EXIT
     validate_configuration
     prepare_user_state
     # Privilege-dropped bootstrap commands must not inherit root's private cwd.
     cd "${SPACE_HOME}"
     configure_clor
     repository_destination="$(prepare_repository)"
-    if ! run_setup_script "${repository_destination}"; then
-        setup_succeeded="false"
-    fi
+    write_archive_directory "${repository_destination}"
+    run_setup_script "${repository_destination}"
+    cleanup_setup_script
+    trap - EXIT
     generate_services
     clear_sensitive_environment
-    if [[ "${setup_succeeded}" == "true" ]]; then
-        mark_ready
-    fi
     handoff "$@"
 }
 

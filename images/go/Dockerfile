@@ -26,6 +26,8 @@ RUN go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
 ARG DELVE_VERSION="1.7.3"
 RUN go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}"
 
-WORKDIR /home/user
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["bash"]
+USER root
+ENV HOME="/root"
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+WORKDIR /root

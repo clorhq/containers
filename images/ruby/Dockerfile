@@ -39,11 +39,14 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
 # image's per-user tool layout.
 ENV GEM_HOME="/home/user/.gem"
 ENV PATH="/home/user/.gem/bin:${PATH}"
+ENV CLOR_SPACE_PATH_PREFIX="/home/user/.gem/bin"
 
 # Ruby developer tooling: the Bundler dependency manager, the RuboCop
 # linter/formatter, and the Solargraph language server.
 RUN gem install --no-document bundler rubocop solargraph
 
-WORKDIR /home/user
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["bash"]
+USER root
+ENV HOME="/root"
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+WORKDIR /root

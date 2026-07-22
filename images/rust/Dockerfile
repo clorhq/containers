@@ -19,12 +19,15 @@ RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
   | sh -s -- -y --profile minimal --no-modify-path --default-toolchain "${RUST_VERSION}" \
     --component clippy --component rustfmt --component rust-src --component rust-analyzer
 ENV PATH="/home/user/.cargo/bin:${PATH}"
+ENV CLOR_SPACE_PATH_PREFIX="/home/user/.cargo/bin"
 
 # Cargo development tools: the nextest test runner, a file watcher for
 # rebuild-on-save, cargo-edit for dependency management, and cargo-audit for
 # vulnerability scanning.
 RUN cargo install --locked cargo-nextest cargo-watch cargo-edit cargo-audit
 
-WORKDIR /home/user
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["bash"]
+USER root
+ENV HOME="/root"
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+WORKDIR /root

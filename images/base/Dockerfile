@@ -270,7 +270,16 @@ USER root
 ENV HOME="/root"
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+COPY images/base/lifecycle /usr/local/src/clor-lifecycle
+RUN cd /usr/local/src/clor-lifecycle \
+  && go test -count=1 ./... \
+  && CLOR_LIFECYCLE_INTEGRATION=1 go test -count=1 \
+    -run 'TestDumbInitIntegration|TestCoordinatorIntegrationHelper' ./... \
+  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
+    -o /usr/local/lib/clor/lifecycle . \
+  && rm --recursive --force /usr/local/src/clor-lifecycle
 COPY --chmod=0755 images/base/entrypoint /usr/local/lib/clor/entrypoint
+COPY --chmod=0755 images/base/stop-services /usr/local/lib/clor/stop-services
 RUN mkdir --parents \
   /etc/service \
   /var/lib/clor
@@ -278,7 +287,7 @@ RUN mkdir --parents \
 ENV CLOR_SPACE_USER="user"
 ENV CLOR_SPACE_HOME="/home/user"
 WORKDIR /root
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/lib/clor/entrypoint"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--single-child", "--", "/usr/local/lib/clor/lifecycle", "/usr/local/lib/clor/entrypoint"]
 
 # Exercise the completed image without copying test assets into production.
 FROM base AS test
@@ -305,17 +314,32 @@ RUN test "${HOME}" = /root \
       && command -v playwright >/dev/null' \
   && bash -n \
     /usr/local/lib/clor/entrypoint \
+    /usr/local/lib/clor/stop-services \
     /usr/local/lib/clor/tests/entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-container \
+    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
+    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
     /etc/profile.d/clor-space-tools.sh \
   && shellcheck \
     /usr/local/lib/clor/entrypoint \
+    /usr/local/lib/clor/stop-services \
     /usr/local/lib/clor/tests/entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-container \
+    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
+    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
     /usr/local/lib/clor/entrypoint \
+    /usr/local/lib/clor/stop-services \
     /usr/local/lib/clor/tests/entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-container \
+    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
+    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
+    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \

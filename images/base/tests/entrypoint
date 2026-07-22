@@ -10,6 +10,10 @@ STATE_DIRECTORY="${TEST_ROOT}/state"
 STUBS_DIRECTORY="/usr/local/lib/clor/tests/bin"
 SETUP_FINGERPRINT_FILE="/var/lib/clor/setup-fingerprint"
 READY_FILE="/run/clor/ready"
+LIFECYCLE_DIRECTORY="/run/clor/lifecycle"
+ARCHIVE_DIRECTORY_FILE="${LIFECYCLE_DIRECTORY}/archive-directory"
+WORKLOAD_STARTED_FILE="${LIFECYCLE_DIRECTORY}/workload-started"
+SETUP_SCRIPT_FILE="${LIFECYCLE_DIRECTORY}/setup-script"
 
 fail() {
     printf 'entrypoint test: %s\n' "$*" >&2
@@ -52,9 +56,10 @@ assert_equals() {
 reset_bootstrap_state() {
     rm --recursive --force "${STATE_DIRECTORY}"
     rm --force "${SETUP_FINGERPRINT_FILE}" "${READY_FILE}"
+    rm --recursive --force "${LIFECYCLE_DIRECTORY}"
     # The trailing slash traverses Debian runit's /etc/service symlink.
     find /etc/service/ -mindepth 1 -maxdepth 1 \
-        \( -name code-server -o -name space-daemon -o -name 'tab-*' \) \
+        \( -name code-server -o -name readiness -o -name space-daemon -o -name 'tab-*' \) \
         -exec rm --recursive --force -- {} +
     find /var/log -mindepth 1 -maxdepth 1 \
         \( -name code-server -o -name space-daemon -o -name 'tab-*' \) \
@@ -117,31 +122,60 @@ test_invalid_destination_clears_readiness() {
 }
 
 test_home_setup_and_fingerprint() {
+    local expected_script="${TEST_ROOT}/expected-setup-script"
     local setup_script
+    local setup_script_base64
     local temporary_fingerprint
 
     reset_bootstrap_state
     # shellcheck disable=SC2016 # Expanded by the setup shell, not this test.
-    setup_script='printf "%s\n" "$PWD" >"$HOME/setup-pwd"; printf "run\n" >>"$HOME/setup-runs"'
+    setup_script=$'cp -- "${BASH_SOURCE[0]}" "$HOME/setup-source"\nprintf "%s\\n" "$PWD" >"$HOME/setup-pwd"\nprintf "run\\n" >>"$HOME/setup-runs"\n\n'
+    printf '%s' "${setup_script}" >"${expected_script}"
+    setup_script_base64="$(printf '%s' "${setup_script}" | base64 --wrap=0)"
     run_bootstrap \
         CLOR_BOOTSTRAP_FINGERPRINT=home-v1 \
-        CLOR_SETUP_SCRIPT="${setup_script}" \
+        CLOR_SETUP_SCRIPT_BASE64="${setup_script_base64}" \
         "${ENTRYPOINT}" true
 
     assert_equals "${STATE_DIRECTORY}/home" \
         "$(<"${STATE_DIRECTORY}/home/setup-pwd")"
     assert_equals home-v1 "$(<"${SETUP_FINGERPRINT_FILE}")"
+    cmp --silent "${expected_script}" "${STATE_DIRECTORY}/home/setup-source" ||
+        fail "decoded setup script did not preserve its exact bytes"
+    assert_file_absent "${SETUP_SCRIPT_FILE}"
     assert_file_exists "${READY_FILE}"
+    assert_equals "${STATE_DIRECTORY}/home" "$(<"${ARCHIVE_DIRECTORY_FILE}")"
+    assert_file_exists "${WORKLOAD_STARTED_FILE}"
+    assert_equals root "$(stat --format=%U "${ARCHIVE_DIRECTORY_FILE}")"
+    assert_equals root "$(stat --format=%U "${WORKLOAD_STARTED_FILE}")"
     temporary_fingerprint="$(find /var/lib/clor -maxdepth 1 \
         -name 'setup-fingerprint.tmp.*' -print -quit)"
     assert_equals "" "${temporary_fingerprint}"
 
     # shellcheck disable=SC2016 # Expanded only if fingerprint skipping fails.
     run_bootstrap \
-        CLOR_BOOTSTRAP_FINGERPRINT=home-v1 \
+        CLOR_BOOTSTRAP_FINGERPRINT=home-v2 \
         CLOR_SETUP_SCRIPT='printf "unexpected\n" >>"$HOME/setup-runs"' \
         "${ENTRYPOINT}" true
     assert_equals 1 "$(wc -l <"${STATE_DIRECTORY}/home/setup-runs")"
+    assert_equals home-v1 "$(<"${SETUP_FINGERPRINT_FILE}")"
+}
+
+test_invalid_setup_encoding_withholds_readiness() {
+    local error_file="${TEST_ROOT}/invalid-setup-encoding.err"
+
+    reset_bootstrap_state
+    mkdir --parents "$(dirname "${READY_FILE}")"
+    : >"${READY_FILE}"
+    if run_bootstrap \
+        CLOR_SETUP_SCRIPT_BASE64='not valid base64!' \
+        "${ENTRYPOINT}" true 2>"${error_file}"; then
+        fail "invalid Base64 setup script succeeded"
+    fi
+    assert_file_absent "${READY_FILE}"
+    assert_file_absent "${SETUP_FINGERPRINT_FILE}"
+    assert_contains "bootstrap: CLOR_SETUP_SCRIPT_BASE64 is not valid Base64" \
+        "${error_file}"
 }
 
 test_missing_agent_config_is_skipped() {
@@ -157,17 +191,20 @@ test_missing_agent_config_is_skipped() {
 test_repository_setup_and_preservation() {
     local checkout="${STATE_DIRECTORY}/space/nested/project"
     local error_file="${TEST_ROOT}/origin-mismatch.err"
+    local setup_script
 
     reset_bootstrap_state
     # shellcheck disable=SC2016 # Expanded by the setup shell.
+    setup_script='printf "%s\n" "$PWD" >"$HOME/setup-pwd"'
     run_bootstrap \
         CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-one" \
         CLOR_REPOSITORY_DIRECTORY=nested/project \
         CLOR_BOOTSTRAP_FINGERPRINT=repository-v1 \
-        CLOR_SETUP_SCRIPT='printf "%s\n" "$PWD" >"$HOME/setup-pwd"' \
+        CLOR_SETUP_SCRIPT_BASE64="$(printf '%s' "${setup_script}" | base64 --wrap=0)" \
         "${ENTRYPOINT}" true
 
     assert_equals "${checkout}" "$(<"${STATE_DIRECTORY}/home/setup-pwd")"
+    assert_equals "${checkout}" "$(<"${ARCHIVE_DIRECTORY_FILE}")"
     assert_file_absent "${checkout}.partial"
     assert_equals "${checkout}" "$(gosu user env HOME="${STATE_DIRECTORY}/home" \
         git config --global --get-all safe.directory)"
@@ -177,7 +214,7 @@ test_repository_setup_and_preservation() {
         CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-one" \
         CLOR_REPOSITORY_DIRECTORY=nested/project \
         CLOR_BOOTSTRAP_FINGERPRINT=repository-v1 \
-        CLOR_SETUP_SCRIPT=false \
+        CLOR_SETUP_SCRIPT_BASE64="$(printf '%s' false | base64 --wrap=0)" \
         "${ENTRYPOINT}" true
     assert_equals dirty "$(<"${checkout}/untracked.txt")"
     assert_equals 1 "$(gosu user env HOME="${STATE_DIRECTORY}/home" \
@@ -202,10 +239,12 @@ test_setup_failure_withholds_readiness() {
     reset_bootstrap_state
     mkdir --parents "$(dirname "${READY_FILE}")"
     : >"${READY_FILE}"
-    run_bootstrap \
+    if run_bootstrap \
         CLOR_BOOTSTRAP_FINGERPRINT=failing-v1 \
-        CLOR_SETUP_SCRIPT='exit 23' \
-        "${ENTRYPOINT}" true 2>"${error_file}"
+        CLOR_SETUP_SCRIPT_BASE64="$(printf '%s' 'exit 23' | base64 --wrap=0)" \
+        "${ENTRYPOINT}" true 2>"${error_file}"; then
+        fail "failing setup script succeeded"
+    fi
     assert_file_absent "${READY_FILE}"
     assert_file_absent "${SETUP_FINGERPRINT_FILE}"
     assert_contains "bootstrap: setup script failed" "${error_file}"
@@ -235,6 +274,7 @@ test_services_secrets_and_passthrough() {
     assert_file_absent /etc/service/tab-stale
     assert_file_exists /etc/service/space-daemon/run
     assert_file_exists /etc/service/code-server/run
+    assert_file_exists /etc/service/readiness/run
     assert_file_exists "${tab_service}"
     assert_equals 600 "$(stat --format=%a "${environment_file}")"
     assert_contains 'TAB_SECRET=webtui-secret' "${environment_file}"
@@ -257,6 +297,9 @@ test_services_secrets_and_passthrough() {
     assert_not_contains 'sleep 2' "${tab_service}"
     assert_not_contains 'credentials-ready' /etc/service/space-daemon/run
     assert_not_contains 'credentials-ready' /etc/service/code-server/run
+    assert_contains 'PORTS=(' /etc/service/readiness/run
+    assert_contains '6000' /etc/service/readiness/run
+    assert_contains '7000' /etc/service/readiness/run
     assert_equals user "$(stat --format=%U /run/clor/space-daemon)"
     bash -n /etc/service/space-daemon/run /etc/service/code-server/run \
         "${tab_service}"
@@ -281,6 +324,7 @@ main() {
 
     test_invalid_destination_clears_readiness
     test_home_setup_and_fingerprint
+    test_invalid_setup_encoding_withholds_readiness
     test_missing_agent_config_is_skipped
     test_repository_setup_and_preservation
     test_setup_failure_withholds_readiness
