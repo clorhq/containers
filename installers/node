@@ -1,0 +1,25 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+ARCHIVE="/downloads/node-v${VERSION}-linux-${ARCH}.tar.xz"
+URL="https://nodejs.org/dist/v${VERSION}/node-v${VERSION}-linux-${ARCH}.tar.xz"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+tar --extract --xz \
+    --directory=/usr/local \
+    --strip-components=1 \
+    --file="${ARCHIVE}"

@@ -1,0 +1,58 @@
+#!/bin/bash
+# Refresh every ARG <NAME>_VERSION default across all Dockerfiles to the latest
+# version reported by the matching versions/<tool> script. Host-side; runs on
+# macOS bash 3.2 + BSD tools. In-place edits go through a temp file + mv.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSIONS_DIR="${REPO_ROOT}/versions"
+
+CHANGED=0
+
+# Map an ARG name like GOLANGCI_LINT_VERSION to a versions/ script name:
+# strip the _VERSION suffix, lowercase, and turn underscores into hyphens.
+tool_name() {
+    ARG_NAME="$1"
+    echo "${ARG_NAME%_VERSION}" | tr 'A-Z' 'a-z' | tr '_' '-'
+}
+
+while read -r DOCKERFILE; do
+    while read -r LINE; do
+        ARG_NAME="$(echo "${LINE}" | sed -n 's/^ARG \([A-Z0-9_]*_VERSION\)=".*"$/\1/p')"
+        [[ -z "${ARG_NAME}" ]] && continue
+        CURRENT="$(echo "${LINE}" | sed -n 's/^ARG [A-Z0-9_]*_VERSION="\(.*\)"$/\1/p')"
+        TOOL="$(tool_name "${ARG_NAME}")"
+
+        if [[ ! -x "${VERSIONS_DIR}/${TOOL}" ]]; then
+            echo "skip ${ARG_NAME}: no versions/${TOOL} script" >&2
+            continue
+        fi
+
+        if ! LATEST="$("${VERSIONS_DIR}/${TOOL}" "${CHANNEL}" 2>/dev/null)" || [[ -z "${LATEST}" ]]; then
+            echo "skip ${ARG_NAME}: versions/${TOOL} ${CHANNEL} produced no version" >&2
+            continue
+        fi
+
+        if [[ "${LATEST}" = "${CURRENT}" ]]; then
+            continue
+        fi
+
+        TEMP_FILE="$(mktemp "${TMPDIR:-/tmp}/sd-update.XXXXXX")"
+        sed 's|^ARG '"${ARG_NAME}"'=".*"$|ARG '"${ARG_NAME}"'="'"${LATEST}"'"|' \
+            "${DOCKERFILE}" > "${TEMP_FILE}"
+        mv "${TEMP_FILE}" "${DOCKERFILE}"
+
+        RELATIVE="${DOCKERFILE#${REPO_ROOT}/}"
+        echo "${RELATIVE} ${ARG_NAME}: ${CURRENT} -> ${LATEST}"
+        CHANGED=$((CHANGED + 1))
+    done < <(grep -E '^ARG [A-Z0-9_]+_VERSION="[^"]*"' "${DOCKERFILE}")
+done < <(find "${REPO_ROOT}" -name Dockerfile -type f | sort)
+
+if [[ "${CHANGED}" -eq 0 ]]; then
+    echo "all versions already up to date"
+else
+    echo "updated ${CHANGED} version(s)"
+fi

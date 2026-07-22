@@ -1,0 +1,26 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="aarch64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARGET="deno-${ARCH}-unknown-linux-gnu"
+ARCHIVE="/downloads/${TARGET}-${VERSION}.zip"
+URL="https://github.com/denoland/deno/releases/download/v${VERSION}/${TARGET}.zip"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+unzip -q "${ARCHIVE}" -d "${EXTRACT_DIR}"
+install --mode=0755 "${EXTRACT_DIR}/deno" /usr/local/bin/deno
+rm --recursive --force "${EXTRACT_DIR}"

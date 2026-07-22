@@ -1,0 +1,11 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib"
+
+TAG="$(github_latest_tag oven-sh/bun)"
+echo "${TAG#bun-v}"

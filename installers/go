@@ -1,0 +1,25 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+ARCH="$(dpkg --print-architecture)"
+
+ARCHIVE="/downloads/go${VERSION}.linux-${ARCH}.tar.gz"
+URL="https://go.dev/dl/go${VERSION}.linux-${ARCH}.tar.gz"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+tar --extract --gzip \
+    --directory=/usr/local \
+    --file="${ARCHIVE}"
+
+# The distribution ships more than one binary (go, gofmt); expose each of
+# them on PATH.
+for TOOL in /usr/local/go/bin/*; do
+    ln --symbolic --force "${TOOL}" "/usr/local/bin/$(basename "${TOOL}")"
+done

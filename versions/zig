@@ -1,0 +1,12 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+
+# The download index lists a "master" nightly key alongside the tagged
+# releases, newest first. Drop master and take the newest tagged version.
+curl --fail --silent --show-error --location \
+    "https://ziglang.org/download/index.json" \
+    | jq --raw-output 'to_entries | map(.key) | map(select(. != "master")) | .[0]'

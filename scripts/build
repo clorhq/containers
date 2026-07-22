@@ -1,0 +1,38 @@
+#!/bin/bash
+# Build the base image and every derived variant on the host's native
+# architecture and load them into the local Docker image store. This is the
+# developer/forker path; CI publishes multi-arch images with the workflow.
+# Host-side; runs on macOS bash 3.2 + BSD tools.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+BASE_TAG="software-development-base"
+EXTRA_BUILD_ARGS="${EXTRA_BUILD_ARGS:-}"
+
+# Local builds pin the default docker-driver builder: a docker-container
+# builder (the multi-arch push path) is isolated from the host image store,
+# so a derived image's FROM software-development-base:latest would fall through to
+# Docker Hub instead of the base image just built. The docker driver builds
+# straight into the local store, where the variants can see it.
+BUILDER="default"
+
+echo "==> building ${BASE_TAG}"
+docker buildx build --builder "${BUILDER}" --load \
+    --tag "${BASE_TAG}:latest" \
+    --file images/base/Dockerfile \
+    ${EXTRA_BUILD_ARGS} \
+    .
+
+for VARIANT in rust go typescript python zig ruby desktop; do
+    echo "==> building software-development-${VARIANT}"
+    docker buildx build --builder "${BUILDER}" --load \
+        --tag "software-development-${VARIANT}:latest" \
+        --file "images/${VARIANT}/Dockerfile" \
+        --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
+        ${EXTRA_BUILD_ARGS} \
+        .
+done

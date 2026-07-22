@@ -1,0 +1,17 @@
+{
+  "name": "review-mode",
+  "displayName": "Clor Review Mode",
+  "description": "Opens the Source Control view when code-server starts.",
+  "version": "1.0.0",
+  "publisher": "clor",
+  "engines": {
+    "vscode": "^1.129.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js"
+}

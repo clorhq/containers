@@ -1,0 +1,95 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="aarch64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARGET="${ARCH}-unknown-linux-musl"
+ASSET="codex-package-${TARGET}.tar.gz"
+CHECKSUM_ASSET="codex-package_SHA256SUMS"
+ARCHIVE="/downloads/codex-${VERSION}-${TARGET}.tar.gz"
+CHECKSUMS="/downloads/codex-${VERSION}-SHA256SUMS"
+RELEASE_URL="https://github.com/openai/codex/releases/download/rust-v${VERSION}"
+METADATA_URL="https://api.github.com/repos/openai/codex/releases/tags/rust-v${VERSION}"
+
+# Verify the checksum manifest first.
+CHECKSUM_DIGEST="$(
+    curl --fail --silent --show-error --location "${METADATA_URL}" \
+        | jq --exit-status --raw-output --arg asset "${CHECKSUM_ASSET}" '
+            .assets[]
+            | select(.name == $asset)
+            | .digest
+            | select(startswith("sha256:"))
+            | ltrimstr("sha256:")
+        '
+)"
+if [[ "${#CHECKSUM_DIGEST}" -ne 64 || "${CHECKSUM_DIGEST}" == *[!0-9a-f]* ]]; then
+    echo "invalid SHA-256 digest for ${CHECKSUM_ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${CHECKSUMS}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${CHECKSUMS}" "${RELEASE_URL}/${CHECKSUM_ASSET}"
+fi
+ACTUAL_CHECKSUM_DIGEST="$(sha256sum "${CHECKSUMS}" | awk '{print $1}')"
+if [[ "${ACTUAL_CHECKSUM_DIGEST}" != "${CHECKSUM_DIGEST}" ]]; then
+    echo "checksum manifest digest mismatch" >&2
+    exit 1
+fi
+
+EXPECTED_DIGEST="$(
+    awk -v asset="${ASSET}" '
+        $2 == asset && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {
+            print tolower($1)
+            exit
+        }
+    ' "${CHECKSUMS}"
+)"
+if [[ -z "${EXPECTED_DIGEST}" ]]; then
+    echo "missing SHA-256 digest for ${ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${RELEASE_URL}/${ASSET}"
+fi
+ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    echo "Codex package digest mismatch" >&2
+    exit 1
+fi
+
+CODEX_HOME_DIR="${CODEX_HOME:-${HOME}/.codex}"
+STANDALONE_ROOT="${CODEX_HOME_DIR}/packages/standalone"
+RELEASES_DIR="${STANDALONE_ROOT}/releases"
+RELEASE_DIR="${RELEASES_DIR}/${VERSION}-${TARGET}"
+CURRENT_LINK="${STANDALONE_ROOT}/current"
+BIN_DIR="${HOME}/.local/bin"
+
+mkdir --parents "${RELEASE_DIR}" "${BIN_DIR}"
+tar --extract --gzip \
+    --directory="${RELEASE_DIR}" \
+    --file="${ARCHIVE}"
+
+# Use the packaged entrypoint and preserve every bundled file.
+ENTRYPOINT="$(jq --exit-status --raw-output '.entrypoint' "${RELEASE_DIR}/codex-package.json")"
+if [[ -z "${ENTRYPOINT}" || "${ENTRYPOINT}" = /* || "${ENTRYPOINT}" = *..* || \
+      ! -x "${RELEASE_DIR}/${ENTRYPOINT}" ]]; then
+    echo "invalid Codex package entrypoint: ${ENTRYPOINT}" >&2
+    exit 1
+fi
+
+ln --symbolic --force "${ENTRYPOINT}" "${RELEASE_DIR}/codex"
+ln --symbolic --force --no-dereference "${RELEASE_DIR}" "${CURRENT_LINK}"
+ln --symbolic --force --no-dereference \
+    "${CURRENT_LINK}/${ENTRYPOINT}" "${BIN_DIR}/codex"
+touch "${STANDALONE_ROOT}/install.lock"

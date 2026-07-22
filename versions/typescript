@@ -1,0 +1,10 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib"
+
+npm_latest typescript

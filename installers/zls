@@ -1,0 +1,26 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="aarch64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+ARCHIVE="/downloads/zls-${ARCH}-linux-${VERSION}.tar.xz"
+URL="https://github.com/zigtools/zls/releases/download/${VERSION}/zls-${ARCH}-linux.tar.xz"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+mkdir --parents /usr/local/zls
+tar --extract --xz \
+    --directory=/usr/local/zls \
+    --file="${ARCHIVE}"
+ln --symbolic /usr/local/zls/zls /usr/local/bin/zls

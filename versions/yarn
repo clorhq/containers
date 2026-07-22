@@ -1,0 +1,12 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib"
+
+# The npm "yarn" package is frozen at classic 1.x. Modern Yarn releases ship
+# through @yarnpkg/cli-dist, which is the package corepack downloads.
+npm_latest @yarnpkg/cli-dist

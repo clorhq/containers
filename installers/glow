@@ -1,0 +1,31 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+# The glow archive nests everything under a versioned directory, so the binary
+# lands at ${TARGET}/glow rather than the archive root.
+TARGET="glow_${VERSION}_Linux_${ARCH}"
+ARCHIVE="/downloads/${TARGET}.tar.gz"
+URL="https://github.com/charmbracelet/glow/releases/download/v${VERSION}/${TARGET}.tar.gz"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+tar --extract --gzip \
+    --directory="${EXTRACT_DIR}" \
+    --file="${ARCHIVE}" \
+    "${TARGET}/glow"
+install --mode=0755 "${EXTRACT_DIR}/${TARGET}/glow" /usr/local/bin/glow
+rm --recursive --force "${EXTRACT_DIR}"

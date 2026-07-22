@@ -1,0 +1,27 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x64" ;;
+    arm64) ARCH="aarch64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARGET="bun-linux-${ARCH}"
+ARCHIVE="/downloads/${TARGET}-${VERSION}.zip"
+URL="https://github.com/oven-sh/bun/releases/download/bun-v${VERSION}/${TARGET}.zip"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+unzip -q "${ARCHIVE}" -d "${EXTRACT_DIR}"
+install --mode=0755 "${EXTRACT_DIR}/${TARGET}/bun" /usr/local/bin/bun
+ln --symbolic --force /usr/local/bin/bun /usr/local/bin/bunx
+rm --recursive --force "${EXTRACT_DIR}"

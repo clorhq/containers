@@ -1,0 +1,52 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+PLATFORM="linux-${ARCH}"
+RELEASE_URL="https://downloads.claude.ai/claude-code-releases/${VERSION}"
+MANIFEST="/downloads/claude-${VERSION}-manifest.json"
+BINARY="/downloads/claude-${VERSION}-${PLATFORM}"
+
+if [[ ! -f "${MANIFEST}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${MANIFEST}" "${RELEASE_URL}/manifest.json"
+fi
+
+EXPECTED_DIGEST="$(
+    jq --exit-status --raw-output \
+        --arg version "${VERSION}" \
+        --arg platform "${PLATFORM}" \
+        'select(.version == $version) | .platforms[$platform].checksum' \
+        "${MANIFEST}"
+)"
+if [[ "${#EXPECTED_DIGEST}" -ne 64 || "${EXPECTED_DIGEST}" == *[!0-9a-f]* ]]; then
+    echo "invalid SHA-256 digest for Claude ${VERSION} ${PLATFORM}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${BINARY}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${BINARY}" "${RELEASE_URL}/${PLATFORM}/claude"
+fi
+ACTUAL_DIGEST="$(sha256sum "${BINARY}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    echo "Claude binary digest mismatch" >&2
+    exit 1
+fi
+
+VERSIONS_DIR="${HOME}/.local/share/claude/versions"
+VERSION_PATH="${VERSIONS_DIR}/${VERSION}"
+BIN_DIR="${HOME}/.local/bin"
+
+mkdir --parents "${VERSIONS_DIR}" "${BIN_DIR}" "${HOME}/.claude/downloads"
+install --mode=0755 "${BINARY}" "${VERSION_PATH}"
+ln --symbolic --force --no-dereference "${VERSION_PATH}" "${BIN_DIR}/claude"

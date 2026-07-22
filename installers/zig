@@ -1,0 +1,48 @@
+#!/bin/bash
+# Install Zig from a random community mirror, verified against the official
+# minisign signature hosted on ziglang.org.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+PUBKEY="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="aarch64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARBALL="zig-${ARCH}-linux-${VERSION}.tar.xz"
+ARCHIVE="/downloads/${TARBALL}"
+SIG="/downloads/${TARBALL}.minisig"
+
+if [[ ! -f "${ARCHIVE}" || ! -f "${SIG}" ]]; then
+    DOWNLOADED=false
+    for MIRROR in $(curl --fail --silent --show-error --location \
+        https://ziglang.org/download/community-mirrors.txt | shuf); do
+        if curl --fail --silent --show-error --location \
+            --output "${ARCHIVE}" "${MIRROR}/${TARBALL}"; then
+            DOWNLOADED=true
+            break
+        fi
+        echo "mirror ${MIRROR} failed for ${TARBALL}; trying the next" >&2
+    done
+    if [[ "${DOWNLOADED}" != "true" ]]; then
+        echo "every community mirror failed for ${TARBALL}; downloading from ziglang.org" >&2
+        curl --fail --silent --show-error --location \
+            --output "${ARCHIVE}" \
+            "https://ziglang.org/download/${VERSION}/${TARBALL}"
+    fi
+    curl --fail --silent --show-error --location \
+        --output "${SIG}" \
+        "https://ziglang.org/download/${VERSION}/${TARBALL}.minisig"
+fi
+
+minisign -Vm "${ARCHIVE}" -P "${PUBKEY}"
+
+tar --extract --xz \
+    --directory=/usr/local \
+    --file="${ARCHIVE}"
+ln --symbolic "/usr/local/zig-${ARCH}-linux-${VERSION}/zig" /usr/local/bin/zig

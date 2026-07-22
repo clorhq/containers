@@ -1,0 +1,10 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+
+BODY="$(curl --fail --silent --show-error --location "https://go.dev/VERSION?m=text")"
+FIRST_LINE="${BODY%%$'\n'*}"
+echo "${FIRST_LINE#go}"

@@ -1,0 +1,19 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+
+# python.org's release API includes prereleases and every historical branch.
+# Keep final Python 3 releases, sort their numeric components, and select the
+# newest bugfix release from the newest stable branch.
+curl --fail --silent --show-error --location \
+    "https://www.python.org/api/v2/downloads/release/?is_published=true" \
+    | jq --raw-output '
+        map(.name | capture("^Python (?<version>3\\.[0-9]+\\.[0-9]+)$").version?)
+        | map(select(. != null))
+        | map({version: ., parts: (split(".") | map(tonumber))})
+        | max_by(.parts)
+        | .version
+    '

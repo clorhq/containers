@@ -1,0 +1,13 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib"
+
+# ruby/ruby release tags look like v3_4_1; normalise to 3.4.1.
+TAG="$(github_latest_tag ruby/ruby)"
+VERSION="${TAG#v}"
+echo "${VERSION}" | tr '_' '.'

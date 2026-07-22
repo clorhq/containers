@@ -1,0 +1,39 @@
+#!/bin/bash
+# Build the base image and every derived variant for amd64 + arm64 and push
+# them to GHCR under ghcr.io/clorhq. This is the laptop publish path; CI does
+# the same with the official Docker actions. Host-side; runs on macOS bash 3.2.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+REGISTRY="ghcr.io/clorhq"
+PLATFORMS="linux/amd64,linux/arm64"
+GIT_SHA="$(git rev-parse --short HEAD)"
+EXTRA_BUILD_ARGS="${EXTRA_BUILD_ARGS:-}"
+
+BASE_IMAGE="${REGISTRY}/software-development-base"
+
+echo "==> building and pushing ${BASE_IMAGE}"
+docker buildx build --push \
+    --platform "${PLATFORMS}" \
+    --tag "${BASE_IMAGE}:latest" \
+    --tag "${BASE_IMAGE}:${GIT_SHA}" \
+    --file images/base/Dockerfile \
+    ${EXTRA_BUILD_ARGS} \
+    .
+
+for VARIANT in rust go typescript python zig ruby desktop; do
+    IMAGE="${REGISTRY}/software-development-${VARIANT}"
+    echo "==> building and pushing ${IMAGE}"
+    docker buildx build --push \
+        --platform "${PLATFORMS}" \
+        --tag "${IMAGE}:latest" \
+        --tag "${IMAGE}:${GIT_SHA}" \
+        --file "images/${VARIANT}/Dockerfile" \
+        --build-arg "BASE_IMAGE=${BASE_IMAGE}:latest" \
+        ${EXTRA_BUILD_ARGS} \
+        .
+done

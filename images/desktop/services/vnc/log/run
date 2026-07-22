@@ -1,0 +1,3 @@
+#!/bin/bash
+exec svlogd -tt -l 1023 -b 1048576 /var/log/desktop-vnc
+

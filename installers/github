@@ -1,0 +1,76 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="amd64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARGET="gh_${VERSION}_linux_${ARCH}"
+ARCHIVE="/downloads/${TARGET}.tar.gz"
+ASSET="${TARGET}.tar.gz"
+CHECKSUM_ASSET="gh_${VERSION}_checksums.txt"
+CHECKSUMS="/downloads/${CHECKSUM_ASSET}"
+RELEASE_URL="https://github.com/cli/cli/releases/download/v${VERSION}"
+METADATA_URL="https://api.github.com/repos/cli/cli/releases/tags/v${VERSION}"
+
+CHECKSUM_DIGEST="$(
+    curl --fail --silent --show-error --location "${METADATA_URL}" \
+        | jq --exit-status --raw-output --arg asset "${CHECKSUM_ASSET}" '
+            .assets[]
+            | select(.name == $asset)
+            | .digest
+            | select(startswith("sha256:"))
+            | ltrimstr("sha256:")
+        '
+)"
+if [[ "${#CHECKSUM_DIGEST}" -ne 64 || "${CHECKSUM_DIGEST}" == *[!0-9a-f]* ]]; then
+    echo "invalid SHA-256 digest for ${CHECKSUM_ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${CHECKSUMS}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${CHECKSUMS}" "${RELEASE_URL}/${CHECKSUM_ASSET}"
+fi
+ACTUAL_CHECKSUM_DIGEST="$(sha256sum "${CHECKSUMS}" | awk '{print $1}')"
+if [[ "${ACTUAL_CHECKSUM_DIGEST}" != "${CHECKSUM_DIGEST}" ]]; then
+    echo "checksum manifest digest mismatch" >&2
+    exit 1
+fi
+
+EXPECTED_DIGEST="$(
+    awk -v asset="${ASSET}" '
+        $2 == asset && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {
+            print tolower($1)
+            exit
+        }
+    ' "${CHECKSUMS}"
+)"
+if [[ -z "${EXPECTED_DIGEST}" ]]; then
+    echo "missing SHA-256 digest for ${ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${RELEASE_URL}/${ASSET}"
+fi
+ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    echo "GitHub CLI archive digest mismatch" >&2
+    exit 1
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+tar --extract --gzip \
+    --directory="${EXTRACT_DIR}" \
+    --file="${ARCHIVE}" \
+    "${TARGET}/bin/gh"
+install --mode=0755 "${EXTRACT_DIR}/${TARGET}/bin/gh" /usr/local/bin/gh
+rm --recursive --force "${EXTRACT_DIR}"

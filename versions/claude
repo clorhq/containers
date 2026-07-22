@@ -1,0 +1,10 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+
+VERSION="$(curl --fail --silent --show-error --location \
+    https://downloads.claude.ai/claude-code-releases/latest)"
+printf '%s\n' "${VERSION}"

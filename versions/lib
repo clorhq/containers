@@ -1,0 +1,26 @@
+#!/bin/bash
+# Shared helpers for the versions/* scripts. These run on the host, including
+# macOS with stock bash 3.2 and BSD coreutils: no associative arrays, no
+# mapfile, no shuf. curl + jq only.
+
+# github_latest_tag owner/repo -> raw tag_name of the latest release.
+github_latest_tag() {
+    REPOSITORY="$1"
+    curl --fail --silent --show-error --location \
+        "https://api.github.com/repos/${REPOSITORY}/releases/latest" \
+        | jq --raw-output '.tag_name'
+}
+
+# github_latest owner/repo -> latest release version with a leading v stripped.
+github_latest() {
+    TAG="$(github_latest_tag "$1")"
+    echo "${TAG#v}"
+}
+
+# npm_latest package -> the version tagged "latest" in the npm registry.
+npm_latest() {
+    PACKAGE="$1"
+    curl --fail --silent --show-error --location \
+        "https://registry.npmjs.org/${PACKAGE}/latest" \
+        | jq --raw-output '.version'
+}

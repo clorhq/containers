@@ -1,0 +1,28 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+ARCHIVE="/downloads/lazygit-${VERSION}-linux-${ARCH}.tar.gz"
+URL="https://github.com/jesseduffield/lazygit/releases/download/v${VERSION}/lazygit_${VERSION}_linux_${ARCH}.tar.gz"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+tar --extract --gzip \
+    --directory="${EXTRACT_DIR}" \
+    --file="${ARCHIVE}" \
+    lazygit
+install --mode=0755 "${EXTRACT_DIR}/lazygit" /usr/local/bin/lazygit
+rm --recursive --force "${EXTRACT_DIR}"

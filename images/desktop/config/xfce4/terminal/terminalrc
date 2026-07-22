@@ -1,0 +1,21 @@
+[Configuration]
+BackgroundMode=TERMINAL_BACKGROUND_SOLID
+ColorBackground=#070b14
+ColorBold=#ffffff
+ColorCursor=#50d8ff
+ColorForeground=#dce7ff
+ColorPalette=#111827;#ff657a;#7ee787;#ffd866;#63b3ff;#b794f6;#4bd9ff;#dce7ff;#536078;#ff8191;#9aefad;#ffe38e;#85c5ff;#c9afff;#78e4ff;#ffffff
+ColorSelectionBackground=#1d506b
+FontName=JetBrains Mono 11
+MiscAlwaysShowTabs=FALSE
+MiscBell=FALSE
+MiscBordersDefault=TRUE
+MiscConfirmClose=TRUE
+MiscCursorBlinks=TRUE
+MiscCursorShape=TERMINAL_CURSOR_SHAPE_BLOCK
+MiscDefaultGeometry=110x32
+MiscMenubarDefault=FALSE
+MiscMouseAutohide=TRUE
+MiscToolbarDefault=FALSE
+ScrollingBar=TERMINAL_SCROLLBAR_NONE
+TitleMode=TERMINAL_TITLE_REPLACE

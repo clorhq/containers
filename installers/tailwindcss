@@ -1,0 +1,22 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="x64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+ARCHIVE="/downloads/tailwindcss-linux-${ARCH}-${VERSION}"
+URL="https://github.com/tailwindlabs/tailwindcss/releases/download/v${VERSION}/tailwindcss-linux-${ARCH}"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+install --mode=0755 "${ARCHIVE}" /usr/local/bin/tailwindcss

@@ -1,0 +1,29 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+exec 2>&1
+
+SPACE_USER="${CLOR_SPACE_USER:-user}"
+SPACE_HOME="${CLOR_SPACE_HOME:-/home/user}"
+SPACE_PATH="${SPACE_HOME}/.local/bin:${SPACE_HOME}/go/bin:${SPACE_HOME}/.npm-global/bin:${PATH}"
+SPACE_PLAYWRIGHT_BROWSERS_PATH="${SPACE_HOME}/.cache/ms-playwright"
+
+# Clear stale display state left by a stopped server before runit restarts it.
+gosu "${SPACE_USER}" env HOME="${SPACE_HOME}" PATH="${SPACE_PATH}" \
+  PLAYWRIGHT_BROWSERS_PATH="${SPACE_PLAYWRIGHT_BROWSERS_PATH}" \
+  tigervncserver -kill :0 >/dev/null 2>&1 || true
+rm --force /tmp/.X0-lock /tmp/.X11-unix/X0
+
+exec gosu "${SPACE_USER}" env \
+  HOME="${SPACE_HOME}" USER="${SPACE_USER}" LOGNAME="${SPACE_USER}" \
+  PATH="${SPACE_PATH}" \
+  PLAYWRIGHT_BROWSERS_PATH="${SPACE_PLAYWRIGHT_BROWSERS_PATH}" \
+  tigervncserver :0 \
+    -fg \
+    -localhost yes \
+    -SecurityTypes None \
+    -geometry "${VNC_GEOMETRY:-1920x1080}" \
+    -depth 24 \
+    -xstartup /usr/local/lib/clor/desktop-xstartup

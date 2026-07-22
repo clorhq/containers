@@ -1,0 +1,8 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# The entrypoint pipes the installer into Bash; an empty successful script
+# keeps the behavioral tests offline.
+printf '#!/bin/bash\nexit 0\n'

@@ -1,0 +1,290 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+ENTRYPOINT="/usr/local/lib/clor/entrypoint"
+TEST_ROOT="/tmp/clor-entrypoint-tests"
+FIXTURES_DIRECTORY="${TEST_ROOT}/fixtures"
+STATE_DIRECTORY="${TEST_ROOT}/state"
+STUBS_DIRECTORY="/usr/local/lib/clor/tests/bin"
+SETUP_FINGERPRINT_FILE="/var/lib/clor/setup-fingerprint"
+READY_FILE="/run/clor/ready"
+
+fail() {
+    printf 'entrypoint test: %s\n' "$*" >&2
+    exit 1
+}
+
+assert_file_exists() {
+    [[ -f "$1" ]] || fail "expected file '$1'"
+}
+
+assert_file_absent() {
+    [[ ! -e "$1" ]] || fail "expected '$1' to be absent"
+}
+
+assert_contains() {
+    local expected="$1"
+    local file="$2"
+
+    grep --fixed-strings --quiet -- "${expected}" "${file}" ||
+        fail "expected '${file}' to contain '${expected}'"
+}
+
+assert_not_contains() {
+    local unexpected="$1"
+    local file="$2"
+
+    if grep --fixed-strings --quiet -- "${unexpected}" "${file}"; then
+        fail "expected '${file}' not to contain '${unexpected}'"
+    fi
+}
+
+assert_equals() {
+    local expected="$1"
+    local actual="$2"
+
+    [[ "${actual}" == "${expected}" ]] ||
+        fail "expected '${expected}', got '${actual}'"
+}
+
+reset_bootstrap_state() {
+    rm --recursive --force "${STATE_DIRECTORY}"
+    rm --force "${SETUP_FINGERPRINT_FILE}" "${READY_FILE}"
+    # The trailing slash traverses Debian runit's /etc/service symlink.
+    find /etc/service/ -mindepth 1 -maxdepth 1 \
+        \( -name code-server -o -name space-daemon -o -name 'tab-*' \) \
+        -exec rm --recursive --force -- {} +
+    find /var/log -mindepth 1 -maxdepth 1 \
+        \( -name code-server -o -name space-daemon -o -name 'tab-*' \) \
+        -exec rm --recursive --force -- {} +
+    mkdir --parents "${STATE_DIRECTORY}"
+    : >"${STATE_DIRECTORY}/clor.log"
+    chown user:user "${STATE_DIRECTORY}/clor.log"
+}
+
+run_bootstrap() {
+    env -i \
+        PATH="${STUBS_DIRECTORY}:${PATH}" \
+        BOOTSTRAP_TEST_CLOR_LOG="${STATE_DIRECTORY}/clor.log" \
+        CLOR_SPACE_USER=user \
+        CLOR_SPACE_HOME="${STATE_DIRECTORY}/home" \
+        CLOR_SPACE_DIRECTORY="${STATE_DIRECTORY}/space" \
+        "$@"
+}
+
+create_repository() {
+    local repository="$1"
+    local contents="$2"
+
+    mkdir --parents "${repository}"
+    printf '%s\n' "${contents}" >"${repository}/tracked.txt"
+    chown --recursive user:user "${repository}"
+    gosu user env HOME="${FIXTURES_DIRECTORY}" \
+        git -C "${repository}" init --quiet --initial-branch=main
+    gosu user env HOME="${FIXTURES_DIRECTORY}" \
+        git -C "${repository}" config user.name "Bootstrap Test"
+    gosu user env HOME="${FIXTURES_DIRECTORY}" \
+        git -C "${repository}" config user.email bootstrap@example.test
+    gosu user env HOME="${FIXTURES_DIRECTORY}" \
+        git -C "${repository}" add tracked.txt
+    gosu user env HOME="${FIXTURES_DIRECTORY}" \
+        git -C "${repository}" commit --quiet --message initial
+}
+
+test_invalid_destination_clears_readiness() {
+    local error_file
+    local invalid_destination
+    local test_number="0"
+
+    for invalid_destination in . .. /absolute ../escape nested/../escape; do
+        test_number="$((test_number + 1))"
+        error_file="${TEST_ROOT}/invalid-destination-${test_number}.err"
+        reset_bootstrap_state
+        mkdir --parents "$(dirname "${READY_FILE}")"
+        : >"${READY_FILE}"
+        if run_bootstrap \
+            CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-one" \
+            CLOR_REPOSITORY_DIRECTORY="${invalid_destination}" \
+            "${ENTRYPOINT}" true 2>"${error_file}"; then
+            fail "unsafe repository destination '${invalid_destination}' succeeded"
+        fi
+        assert_file_absent "${READY_FILE}"
+        assert_contains "bootstrap: repository directory must be a safe relative path" \
+            "${error_file}"
+    done
+}
+
+test_home_setup_and_fingerprint() {
+    local setup_script
+    local temporary_fingerprint
+
+    reset_bootstrap_state
+    # shellcheck disable=SC2016 # Expanded by the setup shell, not this test.
+    setup_script='printf "%s\n" "$PWD" >"$HOME/setup-pwd"; printf "run\n" >>"$HOME/setup-runs"'
+    run_bootstrap \
+        CLOR_BOOTSTRAP_FINGERPRINT=home-v1 \
+        CLOR_SETUP_SCRIPT="${setup_script}" \
+        "${ENTRYPOINT}" true
+
+    assert_equals "${STATE_DIRECTORY}/home" \
+        "$(<"${STATE_DIRECTORY}/home/setup-pwd")"
+    assert_equals home-v1 "$(<"${SETUP_FINGERPRINT_FILE}")"
+    assert_file_exists "${READY_FILE}"
+    temporary_fingerprint="$(find /var/lib/clor -maxdepth 1 \
+        -name 'setup-fingerprint.tmp.*' -print -quit)"
+    assert_equals "" "${temporary_fingerprint}"
+
+    # shellcheck disable=SC2016 # Expanded only if fingerprint skipping fails.
+    run_bootstrap \
+        CLOR_BOOTSTRAP_FINGERPRINT=home-v1 \
+        CLOR_SETUP_SCRIPT='printf "unexpected\n" >>"$HOME/setup-runs"' \
+        "${ENTRYPOINT}" true
+    assert_equals 1 "$(wc -l <"${STATE_DIRECTORY}/home/setup-runs")"
+}
+
+test_missing_agent_config_is_skipped() {
+    reset_bootstrap_state
+    run_bootstrap \
+        CLOR_API_KEY=api-secret \
+        "${ENTRYPOINT}" true
+
+    assert_contains 'repo git setup' "${STATE_DIRECTORY}/clor.log"
+    assert_not_contains 'agent config install' "${STATE_DIRECTORY}/clor.log"
+}
+
+test_repository_setup_and_preservation() {
+    local checkout="${STATE_DIRECTORY}/space/nested/project"
+    local error_file="${TEST_ROOT}/origin-mismatch.err"
+
+    reset_bootstrap_state
+    # shellcheck disable=SC2016 # Expanded by the setup shell.
+    run_bootstrap \
+        CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-one" \
+        CLOR_REPOSITORY_DIRECTORY=nested/project \
+        CLOR_BOOTSTRAP_FINGERPRINT=repository-v1 \
+        CLOR_SETUP_SCRIPT='printf "%s\n" "$PWD" >"$HOME/setup-pwd"' \
+        "${ENTRYPOINT}" true
+
+    assert_equals "${checkout}" "$(<"${STATE_DIRECTORY}/home/setup-pwd")"
+    assert_file_absent "${checkout}.partial"
+    assert_equals "${checkout}" "$(gosu user env HOME="${STATE_DIRECTORY}/home" \
+        git config --global --get-all safe.directory)"
+    # shellcheck disable=SC2016 # Positional argument expands in the child.
+    gosu user bash -c 'printf "%s\n" dirty >"$1/untracked.txt"' _ "${checkout}"
+    run_bootstrap \
+        CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-one" \
+        CLOR_REPOSITORY_DIRECTORY=nested/project \
+        CLOR_BOOTSTRAP_FINGERPRINT=repository-v1 \
+        CLOR_SETUP_SCRIPT=false \
+        "${ENTRYPOINT}" true
+    assert_equals dirty "$(<"${checkout}/untracked.txt")"
+    assert_equals 1 "$(gosu user env HOME="${STATE_DIRECTORY}/home" \
+        git config --global --get-all --fixed-value safe.directory "${checkout}" |
+        wc -l)"
+
+    if run_bootstrap \
+        CLOR_REPOSITORY_URL="${FIXTURES_DIRECTORY}/source-two" \
+        CLOR_REPOSITORY_DIRECTORY=nested/project \
+        "${ENTRYPOINT}" true 2>"${error_file}"; then
+        fail "checkout with a mismatched origin succeeded"
+    fi
+    assert_file_absent "${READY_FILE}"
+    assert_contains "tracks '${FIXTURES_DIRECTORY}/source-one', expected '${FIXTURES_DIRECTORY}/source-two'" \
+        "${error_file}"
+    assert_equals dirty "$(<"${checkout}/untracked.txt")"
+}
+
+test_setup_failure_withholds_readiness() {
+    local error_file="${TEST_ROOT}/setup-failure.err"
+
+    reset_bootstrap_state
+    mkdir --parents "$(dirname "${READY_FILE}")"
+    : >"${READY_FILE}"
+    run_bootstrap \
+        CLOR_BOOTSTRAP_FINGERPRINT=failing-v1 \
+        CLOR_SETUP_SCRIPT='exit 23' \
+        "${ENTRYPOINT}" true 2>"${error_file}"
+    assert_file_absent "${READY_FILE}"
+    assert_file_absent "${SETUP_FINGERPRINT_FILE}"
+    assert_contains "bootstrap: setup script failed" "${error_file}"
+}
+
+test_services_secrets_and_passthrough() {
+    local command_script
+    local environment_file="/etc/service/tab-editor/environment"
+    local tab_service="/etc/service/tab-editor/run"
+    local trace_file="${TEST_ROOT}/services.trace"
+
+    reset_bootstrap_state
+    mkdir --parents /etc/service/tab-stale
+    # shellcheck disable=SC2016 # Expanded by the passthrough shell.
+    command_script='[[ ! -v CLOR_API_KEY ]]; [[ ! -v CLOR_TAB_EDITOR_WEBTUI_SECRET ]]; [[ ! -v CLOR_TAB_EDITOR_DIRECT_TOKEN ]]; [[ "$PWD" == "$HOME" ]]; [[ "$PATH" == "$HOME/.local/bin:"* ]]; [[ "$PATH" == *":$HOME/go/bin:"* ]]; [[ "$PATH" == *":$HOME/.npm-global/bin:"* ]]; [[ "$PLAYWRIGHT_BROWSERS_PATH" == "$HOME/.cache/ms-playwright" ]]; printf "%s\n%s\n" "$USER" "$HOME" >"$HOME/passthrough"'
+    run_bootstrap \
+        CLOR_API_KEY=api-secret \
+        CLOR_GITHUB_CONNECTION_ID=github-connection \
+        CLOR_AGENT_CONFIG_ID=test-agent \
+        CLOR_TAB_EDITOR_COMMAND='printf "tab\n"' \
+        CLOR_TAB_EDITOR_PORT=7000 \
+        CLOR_TAB_EDITOR_WEBTUI_SECRET=webtui-secret \
+        CLOR_TAB_EDITOR_DIRECT_TOKEN=direct-secret \
+        CLOR_TAB_EDITOR_WORKING_DIRECTORY="${STATE_DIRECTORY}/tab-working" \
+        "${ENTRYPOINT}" bash -c "${command_script}" 2>"${trace_file}"
+
+    assert_file_absent /etc/service/tab-stale
+    assert_file_exists /etc/service/space-daemon/run
+    assert_file_exists /etc/service/code-server/run
+    assert_file_exists "${tab_service}"
+    assert_equals 600 "$(stat --format=%a "${environment_file}")"
+    assert_contains 'TAB_SECRET=webtui-secret' "${environment_file}"
+    assert_contains 'TAB_DIRECT_TOKEN=direct-secret' "${environment_file}"
+    assert_contains '--unset=CLOR_WEBTUI_SECRET' "${tab_service}"
+    assert_contains '--unset=CLOR_WEBTUI_DIRECT_TOKEN' "${tab_service}"
+    assert_contains "PATH=${STATE_DIRECTORY}/home/.local/bin:" "${tab_service}"
+    assert_contains \
+        "PLAYWRIGHT_BROWSERS_PATH=${STATE_DIRECTORY}/home/.cache/ms-playwright" \
+        "${tab_service}"
+    assert_contains "PATH=${STATE_DIRECTORY}/home/.local/bin:" \
+        /etc/service/space-daemon/run
+    assert_contains "PATH=${STATE_DIRECTORY}/home/.local/bin:" \
+        /etc/service/code-server/run
+
+    # The tab waits (bounded) on the space daemon's credentials-ready marker
+    # instead of a fixed startup delay; the other services never wait.
+    assert_contains '/run/clor/space-daemon/credentials-ready' "${tab_service}"
+    assert_contains 'for ((WAITED = 0; WAITED < 20; WAITED++)); do' "${tab_service}"
+    assert_not_contains 'sleep 2' "${tab_service}"
+    assert_not_contains 'credentials-ready' /etc/service/space-daemon/run
+    assert_not_contains 'credentials-ready' /etc/service/code-server/run
+    assert_equals user "$(stat --format=%U /run/clor/space-daemon)"
+    bash -n /etc/service/space-daemon/run /etc/service/code-server/run \
+        "${tab_service}"
+
+    assert_contains 'account login --key-standard-input' "${STATE_DIRECTORY}/clor.log"
+    assert_contains 'install skill' "${STATE_DIRECTORY}/clor.log"
+    assert_contains 'repo git setup' "${STATE_DIRECTORY}/clor.log"
+    assert_contains 'github git setup' "${STATE_DIRECTORY}/clor.log"
+    assert_contains 'agent config install test-agent' "${STATE_DIRECTORY}/clor.log"
+    assert_not_contains 'api-secret' "${trace_file}"
+    assert_equals "$(printf 'user\n%s' "${STATE_DIRECTORY}/home")" \
+        "$(<"${STATE_DIRECTORY}/home/passthrough")"
+    assert_file_exists "${READY_FILE}"
+}
+
+main() {
+    rm --recursive --force "${TEST_ROOT}"
+    mkdir --parents "${FIXTURES_DIRECTORY}"
+    chown user:user "${FIXTURES_DIRECTORY}"
+    create_repository "${FIXTURES_DIRECTORY}/source-one" one
+    create_repository "${FIXTURES_DIRECTORY}/source-two" two
+
+    test_invalid_destination_clears_readiness
+    test_home_setup_and_fingerprint
+    test_missing_agent_config_is_skipped
+    test_repository_setup_and_preservation
+    test_setup_failure_withholds_readiness
+    test_services_secrets_and_passthrough
+}
+
+main "$@"

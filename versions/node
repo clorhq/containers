@@ -1,0 +1,11 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+CHANNEL="${1:-stable}"
+
+VERSION="$(curl --fail --silent --show-error --location \
+    "https://nodejs.org/dist/index.json" \
+    | jq --raw-output 'map(select(.lts != false)) | .[0].version')"
+echo "${VERSION#v}"

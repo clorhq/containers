@@ -1,0 +1,21 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+if [[ "${PWD}" != "${HOME}" ]]; then
+    printf 'clor test stub: expected cwd %q, got %q\n' "${HOME}" "${PWD}" >&2
+    exit 1
+fi
+
+if [[ -n "${BOOTSTRAP_TEST_CLOR_LOG:-}" ]]; then
+    printf '%q' "${1:-}" >>"${BOOTSTRAP_TEST_CLOR_LOG}"
+    if (($# > 1)); then
+        printf ' %q' "${@:2}" >>"${BOOTSTRAP_TEST_CLOR_LOG}"
+    fi
+    printf '\n' >>"${BOOTSTRAP_TEST_CLOR_LOG}"
+fi
+
+if [[ "${1:-}" == "account" && "${2:-}" == "login" ]]; then
+    cat >/dev/null
+fi

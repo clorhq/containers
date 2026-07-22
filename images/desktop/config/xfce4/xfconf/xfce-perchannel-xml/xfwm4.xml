@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="active_opacity" type="int" value="100"/>
+    <property name="borderless_maximize" type="bool" value="true"/>
+    <property name="button_layout" type="string" value="O|HMC"/>
+    <property name="click_to_focus" type="bool" value="true"/>
+    <property name="cycle_preview" type="bool" value="true"/>
+    <property name="easy_click" type="string" value="Alt"/>
+    <property name="focus_delay" type="int" value="0"/>
+    <property name="inactive_opacity" type="int" value="96"/>
+    <property name="shadow_opacity" type="int" value="42"/>
+    <property name="show_dock_shadow" type="bool" value="true"/>
+    <property name="show_popup_shadow" type="bool" value="true"/>
+    <property name="snap_resist" type="bool" value="false"/>
+    <property name="snap_to_border" type="bool" value="true"/>
+    <property name="snap_to_windows" type="bool" value="true"/>
+    <property name="theme" type="string" value="Arc-Dark"/>
+    <property name="title_font" type="string" value="Sans Bold 10"/>
+    <property name="use_compositing" type="bool" value="true"/>
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>

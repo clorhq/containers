@@ -1,0 +1,54 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ARCH="amd64" ;;
+    arm64) ARCH="arm64" ;;
+    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+esac
+
+TARGET="code-server-${VERSION}-linux-${ARCH}"
+ASSET="${TARGET}.tar.gz"
+ARCHIVE="/downloads/${ASSET}"
+RELEASE_URL="https://github.com/coder/code-server/releases/download/v${VERSION}"
+METADATA_URL="https://api.github.com/repos/coder/code-server/releases/tags/v${VERSION}"
+
+EXPECTED_DIGEST="$(
+    curl --fail --silent --show-error --location "${METADATA_URL}" \
+        | jq --exit-status --raw-output --arg asset "${ASSET}" '
+            .assets[]
+            | select(.name == $asset)
+            | .digest
+            | select(startswith("sha256:"))
+            | ltrimstr("sha256:")
+        '
+)"
+if [[ "${#EXPECTED_DIGEST}" -ne 64 || "${EXPECTED_DIGEST}" == *[!0-9a-f]* ]]; then
+    echo "invalid SHA-256 digest for ${ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${RELEASE_URL}/${ASSET}"
+fi
+ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    echo "code-server archive digest mismatch" >&2
+    exit 1
+fi
+
+INSTALL_ROOT="/usr/local/lib/code-server"
+RELEASE_DIRECTORY="${INSTALL_ROOT}/${VERSION}"
+
+mkdir --parents "${RELEASE_DIRECTORY}"
+tar --extract --gzip \
+    --directory="${RELEASE_DIRECTORY}" \
+    --strip-components=1 \
+    --file="${ARCHIVE}"
+ln --symbolic --force --no-dereference \
+    "${RELEASE_DIRECTORY}/bin/code-server" /usr/local/bin/code-server
