@@ -136,6 +136,7 @@ jobs:
           retention-days: 1
   merge-variants:
     needs: variants
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

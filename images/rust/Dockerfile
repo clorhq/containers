@@ -12,6 +12,7 @@ USER user
 ENV HOME="/home/user"
 ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
+WORKDIR /home/user
 # Version source: https://static.rust-lang.org/dist/channel-rust-stable.toml
 ARG RUST_VERSION="1.97.0"
 RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \

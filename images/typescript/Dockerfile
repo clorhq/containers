@@ -29,6 +29,7 @@ USER user
 ENV HOME="/home/user"
 ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
+WORKDIR /home/user
 
 # Global JS/TS developer tooling on top of the base: the ESLint linter and
 # the Prettier formatter.

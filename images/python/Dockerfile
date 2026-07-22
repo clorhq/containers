@@ -6,6 +6,7 @@ USER user
 ENV HOME="/home/user"
 ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
+WORKDIR /home/user
 
 # uv ships in the base image. Install and pin a uv-managed CPython, then
 # expose it as python / python3 on PATH via /home/user/.local/bin. The pin is

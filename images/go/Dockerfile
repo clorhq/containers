@@ -17,6 +17,7 @@ USER user
 ENV HOME="/home/user"
 ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
+WORKDIR /home/user
 
 # gopls language server and the delve debugger build from source into
 # /home/user/go/bin, which is already on PATH from the base image.
