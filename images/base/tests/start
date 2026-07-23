@@ -28,6 +28,7 @@ env --ignore-environment \
     PATH="${STUBS_DIRECTORY}:${SYSTEM_PATH}" \
     HOME=/root \
     BOOTSTRAP_TEST_CLOR_LOG="${TEST_ROOT}/clor.log" \
+    CLOR_SPACE_PATH_PREFIX="${STUBS_DIRECTORY}" \
     "${START}"
 grep --fixed-strings --quiet 'space daemon' "${TEST_ROOT}/clor.log" ||
     fail 'managed path did not exec the space daemon'
@@ -40,6 +41,7 @@ env --ignore-environment \
     HOME=/root \
     START_TEST_CURL_STATUS=7 \
     BOOTSTRAP_TEST_CLOR_LOG="${TEST_ROOT}/clor.log" \
+    CLOR_SPACE_PATH_PREFIX="${STUBS_DIRECTORY}" \
     "${START}" 2>"${TEST_ROOT}/stderr.log"
 grep --fixed-strings --quiet 'space daemon' "${TEST_ROOT}/clor.log" ||
     fail 'update failure blocked the space daemon'
