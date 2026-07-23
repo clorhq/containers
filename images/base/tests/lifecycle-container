@@ -188,7 +188,9 @@ docker run --detach \
     --volume "${SCRIPT_DIRECTORY}/bin/curl:/usr/local/bin/curl:ro" \
     "${IMAGE}" >/dev/null
 wait_for_container_file /run/clor/ready
-docker exec "${CONTAINER_NAME}" nc -z 127.0.0.1 6000
+docker exec "${CONTAINER_NAME}" \
+    ss --no-header --listening --tcp --numeric "sport = :6000" |
+    grep --quiet .
 STARTED_AT="${SECONDS}"
 docker kill --signal TERM "${CONTAINER_NAME}" >/dev/null
 docker wait "${CONTAINER_NAME}" >/dev/null

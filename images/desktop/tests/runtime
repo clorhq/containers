@@ -1,0 +1,148 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+if (($# != 1)); then
+    printf 'usage: %s IMAGE\n' "$0" >&2
+    exit 2
+fi
+
+IMAGE="$1"
+CONTAINER_NAME="clor-desktop-runtime-$RANDOM-$$"
+READY_TIMEOUT_SECONDS="300"
+
+cleanup() {
+    docker rm --force "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+}
+
+fail() {
+    printf 'desktop runtime test: %s\n' "$*" >&2
+    docker logs "${CONTAINER_NAME}" >&2 || true
+    exit 1
+}
+
+listener_exists() {
+    local port="$1"
+
+    docker exec "${CONTAINER_NAME}" \
+        ss --no-header --listening --tcp --numeric \
+        "sport = :${port}" |
+        grep --quiet .
+}
+
+wait_for_listener() {
+    local port="$1"
+    local deadline="$((SECONDS + 30))"
+
+    while ((SECONDS < deadline)); do
+        if listener_exists "${port}"; then
+            return 0
+        fi
+        sleep 1
+    done
+    fail "port ${port} did not resume listening"
+}
+
+trap cleanup EXIT
+
+if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    docker pull "${IMAGE}" >/dev/null
+fi
+docker run --detach --name "${CONTAINER_NAME}" "${IMAGE}" >/dev/null
+
+deadline="$((SECONDS + READY_TIMEOUT_SECONDS))"
+while ((SECONDS < deadline)); do
+    if ! docker inspect --format '{{.State.Running}}' "${CONTAINER_NAME}" |
+        grep --quiet '^true$'; then
+        fail "container exited before becoming ready"
+    fi
+    if docker exec "${CONTAINER_NAME}" test -f /run/clor/ready; then
+        break
+    fi
+    sleep 1
+done
+docker exec "${CONTAINER_NAME}" test -f /run/clor/ready ||
+    fail "container did not become ready"
+
+for port in 5900 6000 6080; do
+    listener_exists "${port}" || fail "port ${port} is not listening"
+done
+
+docker exec "${CONTAINER_NAME}" bash -c '
+    set -o errexit
+    set -o nounset
+    set -o pipefail
+
+    vnc_command="$(pgrep --full --list-full "Xtigervnc.*:1")"
+    [[ "${vnc_command}" == *" -rfbport 5900"* ]]
+    [[ "${vnc_command}" == *" -UseBlacklist 0"* ]]
+    [[ ! -e /tmp/.X0-lock ]]
+    [[ ! -e /tmp/.X11-unix/X0 ]]
+    [[ -e /tmp/.X1-lock ]]
+    [[ -S /tmp/.X11-unix/X1 ]]
+'
+
+# Incomplete loopback connections used to exhaust TigerVNC's five-attempt
+# blacklist. A later client must still receive the RFB greeting.
+docker exec --interactive "${CONTAINER_NAME}" python3 - <<'PYTHON'
+import socket
+
+for _ in range(6):
+    with socket.create_connection(("127.0.0.1", 5900), timeout=2) as connection:
+        assert connection.recv(12).startswith(b"RFB ")
+
+with socket.create_connection(("127.0.0.1", 5900), timeout=2) as connection:
+    assert connection.recv(12).startswith(b"RFB ")
+PYTHON
+
+# Verify noVNC's WebSocket endpoint reaches the RFB listener, not merely that
+# its static files are being served.
+docker exec --interactive "${CONTAINER_NAME}" python3 - <<'PYTHON'
+import base64
+import os
+import socket
+
+key = base64.b64encode(os.urandom(16)).decode("ascii")
+request = (
+    "GET /websockify HTTP/1.1\r\n"
+    "Host: 127.0.0.1:6080\r\n"
+    "Connection: Upgrade\r\n"
+    "Upgrade: websocket\r\n"
+    f"Sec-WebSocket-Key: {key}\r\n"
+    "Sec-WebSocket-Version: 13\r\n"
+    "Sec-WebSocket-Protocol: binary\r\n"
+    "\r\n"
+).encode("ascii")
+
+with socket.create_connection(("127.0.0.1", 6080), timeout=5) as connection:
+    connection.sendall(request)
+    response = b""
+    while b"\r\n\r\n" not in response:
+        response += connection.recv(4096)
+    headers, frame = response.split(b"\r\n\r\n", 1)
+    assert b" 101 " in headers.split(b"\r\n", 1)[0]
+
+    while len(frame) < 2:
+        frame += connection.recv(4096)
+    payload_length = frame[1] & 0x7F
+    offset = 2
+    if payload_length == 126:
+        while len(frame) < 4:
+            frame += connection.recv(4096)
+        payload_length = int.from_bytes(frame[2:4], "big")
+        offset = 4
+    elif payload_length == 127:
+        while len(frame) < 10:
+            frame += connection.recv(4096)
+        payload_length = int.from_bytes(frame[2:10], "big")
+        offset = 10
+    while len(frame) < offset + payload_length:
+        frame += connection.recv(4096)
+    assert frame[offset : offset + payload_length].startswith(b"RFB ")
+PYTHON
+
+# Restart VNC while code-server continues to own port 6000.
+docker exec "${CONTAINER_NAME}" sv restart desktop-vnc >/dev/null
+wait_for_listener 5900
+listener_exists 6000 || fail "code-server stopped listening after VNC restart"

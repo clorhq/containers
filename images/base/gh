@@ -1,0 +1,15 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+    GH_TOKEN="$(clor github auth)"
+    if [[ -z "${GH_TOKEN}" ]]; then
+        printf 'gh: Clor GitHub authentication returned an empty token\n' >&2
+        exit 1
+    fi
+    export GH_TOKEN
+fi
+
+exec /usr/local/lib/clor/gh "$@"

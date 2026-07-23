@@ -300,6 +300,9 @@ test_services_secrets_and_passthrough() {
     assert_contains 'PORTS=(' /etc/service/readiness/run
     assert_contains '6000' /etc/service/readiness/run
     assert_contains '7000' /etc/service/readiness/run
+    assert_contains 'ss --no-header --listening --tcp --numeric' \
+        /etc/service/readiness/run
+    assert_not_contains 'nc -z' /etc/service/readiness/run
     assert_equals user "$(stat --format=%U /run/clor/space-daemon)"
     bash -n /etc/service/space-daemon/run /etc/service/code-server/run \
         "${tab_service}"

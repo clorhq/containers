@@ -1,0 +1,14 @@
+{
+  "name": "vscode-pull-request-github",
+  "displayName": "Clor GitHub Authentication Probe",
+  "description": "Exercises the trusted GitHub extension authentication path.",
+  "version": "1.0.0",
+  "publisher": "github",
+  "engines": {
+    "vscode": "^1.129.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js"
+}

@@ -72,5 +72,6 @@ tar --extract --gzip \
     --directory="${EXTRACT_DIR}" \
     --file="${ARCHIVE}" \
     "${TARGET}/bin/gh"
-install --mode=0755 "${EXTRACT_DIR}/${TARGET}/bin/gh" /usr/local/bin/gh
+install --directory --mode=0755 /usr/local/lib/clor
+install --mode=0755 "${EXTRACT_DIR}/${TARGET}/bin/gh" /usr/local/lib/clor/gh
 rm --recursive --force "${EXTRACT_DIR}"

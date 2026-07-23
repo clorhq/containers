@@ -252,7 +252,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
 RUN playwright install chromium firefox webkit
 
 ENV DISABLE_AUTOUPDATER="1"
-ENV CHROME_PATH="/usr/bin/chromium"
+COPY --chmod=0755 images/base/chromium /usr/local/bin/chromium
+ENV CHROME_PATH="/usr/local/bin/chromium"
 
 # Install the fallback Clor release.
 ARG CLOR_VERSION="1.8.5"
@@ -270,6 +271,26 @@ USER root
 ENV HOME="/root"
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+# Adapt only this exact code-server release's built-in GitHub provider. The
+# original provider remains responsible for normal and GitHub Enterprise auth.
+RUN test "${VSCODE_VERSION}" = "4.129.0" \
+  && printf '%s  %s\n' \
+    26035111b16f05f6bdaefe51f200312b12b104d0f9e60ec94c536990c5c8ac0e \
+    "/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/dist/extension.js" \
+    cbe87ebc0e2d1274c396b669794bec0f1f10c01985f9bb9ae6135f3af7ed97b7 \
+    "/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/package.json" \
+  | sha256sum --check --strict
+COPY --chmod=0644 images/base/vscode/github-authentication/*.js \
+  /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/
+RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/package.json" \
+  && test "$(grep --fixed-strings --count \
+    '"main":"./dist/extension.js"' "${github_auth_package}")" = 1 \
+  && sed --in-place \
+    's#"main":"./dist/extension.js"#"main":"./clor-adapter.js"#' \
+    "${github_auth_package}" \
+  && test "$(jq --raw-output .main "${github_auth_package}")" = \
+    "./clor-adapter.js"
+COPY --chmod=0755 images/base/gh /usr/local/bin/gh
 COPY images/base/lifecycle /usr/local/src/clor-lifecycle
 RUN cd /usr/local/src/clor-lifecycle \
   && go test -count=1 ./... \
@@ -313,17 +334,30 @@ RUN test "${HOME}" = /root \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
       && command -v playwright >/dev/null' \
   && bash -n \
+    /usr/local/bin/chromium \
+    /usr/local/bin/gh \
     /usr/local/lib/clor/entrypoint \
     /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/entrypoint \
     /usr/local/lib/clor/tests/lifecycle-container \
     /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
     /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
     /usr/local/lib/clor/tests/lifecycle-runtime-tab \
     /etc/profile.d/clor-space-tools.sh \
+  && node --check \
+    /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-adapter.js \
+  && node --check \
+    /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-github-provider.js \
+  && node --check /usr/local/lib/clor/tests/github-authentication.js \
+  && node --check /usr/local/lib/clor/tests/github-authentication-integration.js \
+  && node --check /usr/local/lib/clor/tests/vscode-auth-probe/extension.js \
   && shellcheck \
+    /usr/local/bin/chromium \
+    /usr/local/bin/gh \
     /usr/local/lib/clor/entrypoint \
     /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/entrypoint \
     /usr/local/lib/clor/tests/lifecycle-container \
     /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
@@ -333,8 +367,11 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
+    /usr/local/bin/chromium \
+    /usr/local/bin/gh \
     /usr/local/lib/clor/entrypoint \
     /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/entrypoint \
     /usr/local/lib/clor/tests/lifecycle-container \
     /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
@@ -343,7 +380,18 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \
+  && node /usr/local/lib/clor/tests/github-authentication.js \
+  && /usr/local/lib/clor/tests/gh \
   && /usr/local/lib/clor/tests/entrypoint
+RUN gosu user env \
+    HOME=/home/user \
+    PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright \
+    node /usr/local/lib/clor/tests/github-authentication-integration.js
+RUN gosu user env \
+    HOME=/home/user \
+    PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${CHROME_PATH}" \
+    node /usr/local/lib/clor/tests/playwright.js
 RUN gosu user env \
     HOME=/home/user \
     PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright \

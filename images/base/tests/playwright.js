@@ -6,8 +6,8 @@ const {
     webkit,
 } = require("/home/user/.npm-global/lib/node_modules/@playwright/test");
 
-async function verifyBrowser(name, browserType, headless) {
-    const browser = await browserType.launch({ headless });
+async function verifyBrowser(name, browserType, headless, launchOptions = {}) {
+    const browser = await browserType.launch({ headless, ...launchOptions });
     const page = await browser.newPage();
     await page.setContent("<!doctype html><title>offline</title><main>ready</main>");
     if ((await page.title()) !== "offline") {
@@ -20,6 +20,15 @@ async function verifyBrowser(name, browserType, headless) {
 }
 
 async function main() {
+    const chromiumExecutablePath =
+        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+    if (chromiumExecutablePath) {
+        await verifyBrowser("System Chromium", chromium, true, {
+            executablePath: chromiumExecutablePath,
+        });
+        return;
+    }
+
     if (process.env.PLAYWRIGHT_HEADED === "true") {
         await verifyBrowser("Chromium under Xvfb", chromium, false);
         return;

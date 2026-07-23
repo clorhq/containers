@@ -1,0 +1,138 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+GH="/usr/local/bin/gh"
+REAL_GH="/usr/local/lib/clor/gh"
+STUBS_DIRECTORY="/usr/local/lib/clor/tests/bin"
+TEST_ROOT="/tmp/clor-gh-tests"
+CLOR_LOG="${TEST_ROOT}/clor.log"
+
+fail() {
+    printf 'gh wrapper test: %s\n' "$*" >&2
+    exit 1
+}
+
+assert_equals() {
+    local expected="$1"
+    local actual="$2"
+
+    [[ "${actual}" == "${expected}" ]] ||
+        fail "expected '${expected}', got '${actual}'"
+}
+
+assert_contains() {
+    local expected="$1"
+    local file="$2"
+
+    grep --fixed-strings --quiet -- "${expected}" "${file}" ||
+        fail "expected '${file}' to contain '${expected}'"
+}
+
+assert_empty() {
+    [[ ! -s "$1" ]] || fail "expected '$1' to be empty"
+}
+
+reset_log() {
+    : >"${CLOR_LOG}"
+}
+
+test_paths() {
+    assert_equals "${GH}" "$(command -v gh)"
+    [[ -x "${GH}" ]] || fail "expected '${GH}' to be executable"
+    [[ -x "${REAL_GH}" ]] || fail "expected '${REAL_GH}' to be executable"
+}
+
+test_clor_token() {
+    local output
+
+    reset_log
+    output="$(
+        env -u GH_TOKEN -u GITHUB_TOKEN \
+            PATH="${STUBS_DIRECTORY}:${PATH}" \
+            GH_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+            GH_WRAPPER_TEST_CLOR_TOKEN=clor-token \
+            "${GH}" auth token
+    )"
+
+    assert_equals clor-token "${output}"
+    assert_equals 1 "$(wc -l <"${CLOR_LOG}")"
+    assert_equals "github auth" "$(<"${CLOR_LOG}")"
+}
+
+test_explicit_tokens() {
+    local output
+
+    reset_log
+    output="$(
+        env -u GITHUB_TOKEN \
+            PATH="${STUBS_DIRECTORY}:${PATH}" \
+            GH_TOKEN=explicit-gh-token \
+            GH_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+            "${GH}" auth token
+    )"
+    assert_equals explicit-gh-token "${output}"
+    assert_empty "${CLOR_LOG}"
+
+    reset_log
+    output="$(
+        env -u GH_TOKEN \
+            PATH="${STUBS_DIRECTORY}:${PATH}" \
+            GITHUB_TOKEN=explicit-github-token \
+            GH_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+            "${GH}" auth token
+    )"
+    assert_equals explicit-github-token "${output}"
+    assert_empty "${CLOR_LOG}"
+}
+
+test_clor_failure() {
+    local error_file="${TEST_ROOT}/failure.err"
+    local output_file="${TEST_ROOT}/failure.out"
+    local status=0
+
+    reset_log
+    env -u GH_TOKEN -u GITHUB_TOKEN \
+        PATH="${STUBS_DIRECTORY}:${PATH}" \
+        GH_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+        GH_WRAPPER_TEST_CLOR_ERROR="clor auth failed" \
+        GH_WRAPPER_TEST_CLOR_STATUS=23 \
+        "${GH}" --version >"${output_file}" 2>"${error_file}" || status=$?
+
+    assert_equals 23 "${status}"
+    assert_empty "${output_file}"
+    assert_contains "clor auth failed" "${error_file}"
+    assert_equals 1 "$(wc -l <"${CLOR_LOG}")"
+}
+
+test_empty_clor_token() {
+    local error_file="${TEST_ROOT}/empty-token.err"
+    local output_file="${TEST_ROOT}/empty-token.out"
+    local status=0
+
+    reset_log
+    env -u GH_TOKEN -u GITHUB_TOKEN \
+        PATH="${STUBS_DIRECTORY}:${PATH}" \
+        GH_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+        GH_WRAPPER_TEST_CLOR_TOKEN= \
+        "${GH}" --version >"${output_file}" 2>"${error_file}" || status=$?
+
+    assert_equals 1 "${status}"
+    assert_empty "${output_file}"
+    assert_contains "Clor GitHub authentication returned an empty token" "${error_file}"
+    assert_equals 1 "$(wc -l <"${CLOR_LOG}")"
+}
+
+main() {
+    rm --recursive --force "${TEST_ROOT}"
+    mkdir --parents "${TEST_ROOT}"
+
+    test_paths
+    test_clor_token
+    test_explicit_tokens
+    test_clor_failure
+    test_empty_clor_token
+}
+
+main "$@"

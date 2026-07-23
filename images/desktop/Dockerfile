@@ -1,6 +1,6 @@
 ARG BASE_IMAGE="software-development-base:latest"
 
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS desktop
 
 USER root
 
@@ -17,6 +17,16 @@ RUN apt-get update && apt-get install --yes \
   xfce4 \
   xfce4-terminal \
   && rm --recursive --force /var/lib/apt/lists/*
+
+# Debian's desktop entry bypasses PATH, so point it at the container-safe
+# Chromium wrapper explicitly.
+RUN test "$(grep --fixed-strings --count \
+    'Exec=/usr/bin/chromium %U' /usr/share/applications/chromium.desktop)" = 1 \
+  && sed --in-place \
+    's#Exec=/usr/bin/chromium %U#Exec=/usr/local/bin/chromium %U#' \
+    /usr/share/applications/chromium.desktop \
+  && grep --fixed-strings --line-regexp \
+    'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop
 
 COPY --chmod=0755 images/desktop/services/vnc/run /etc/service/desktop-vnc/run
 COPY --chmod=0755 images/desktop/services/web/run /etc/service/desktop-web/run
@@ -55,3 +65,28 @@ ENV VNC_GEOMETRY="1920x1080"
 EXPOSE 6080
 
 WORKDIR /root
+
+FROM desktop AS test
+
+COPY --chmod=0755 images/desktop/tests /usr/local/lib/clor/desktop-tests
+RUN grep --fixed-strings --line-regexp \
+    'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop \
+  && bash -n \
+    /etc/service/desktop-vnc/run \
+    /etc/service/desktop-web/run \
+    /etc/service/desktop-vnc/log/run \
+    /etc/service/desktop-web/log/run \
+    /usr/local/lib/clor/desktop-xstartup \
+    /usr/local/lib/clor/desktop-tests/runtime \
+  && shellcheck \
+    /etc/service/desktop-vnc/run \
+    /etc/service/desktop-web/run \
+    /etc/service/desktop-vnc/log/run \
+    /etc/service/desktop-web/log/run \
+    /usr/local/lib/clor/desktop-xstartup \
+    /usr/local/lib/clor/desktop-tests/runtime \
+  && shfmt -d -i 4 -ci \
+    /etc/service/desktop-vnc/run \
+    /usr/local/lib/clor/desktop-tests/runtime
+
+FROM desktop AS production

@@ -640,7 +640,8 @@ deadline="\$((SECONDS + TIMEOUT_SECONDS))"
 while ((SECONDS < deadline)); do
     listening="true"
     for port in "\${PORTS[@]}"; do
-        if ! nc -z 127.0.0.1 "\${port}"; then
+        if [[ -z "\$(ss --no-header --listening --tcp --numeric \
+            "sport = :\${port}")" ]]; then
             listening="false"
             break
         fi

@@ -16,6 +16,34 @@ if [[ -n "${BOOTSTRAP_TEST_CLOR_LOG:-}" ]]; then
     printf '\n' >>"${BOOTSTRAP_TEST_CLOR_LOG}"
 fi
 
+if [[ "${1:-}" == "github" && "${2:-}" == "auth" ]]; then
+    if [[ "${3:-}" == "--stdout-format" && "${4:-}" == "json" ]]; then
+        if [[ -n "${GITHUB_AUTH_PROVIDER_TEST_CLOR_LOG:-}" ]]; then
+            {
+                printf '%q' "${1}"
+                printf ' %q' "${@:2}"
+                printf '\n'
+            } >>"${GITHUB_AUTH_PROVIDER_TEST_CLOR_LOG}"
+        fi
+        if [[ "${GITHUB_AUTH_PROVIDER_TEST_CLOR_STATUS:-0}" != "0" ]]; then
+            exit "${GITHUB_AUTH_PROVIDER_TEST_CLOR_STATUS}"
+        fi
+        printf '%s' "${GITHUB_AUTH_PROVIDER_TEST_RESPONSE:-}"
+        exit 0
+    fi
+    if [[ -n "${GH_WRAPPER_TEST_CLOR_LOG:-}" ]]; then
+        printf 'github auth\n' >>"${GH_WRAPPER_TEST_CLOR_LOG}"
+    fi
+    if [[ -n "${GH_WRAPPER_TEST_CLOR_ERROR:-}" ]]; then
+        printf '%s\n' "${GH_WRAPPER_TEST_CLOR_ERROR}" >&2
+    fi
+    if [[ "${GH_WRAPPER_TEST_CLOR_STATUS:-0}" != "0" ]]; then
+        exit "${GH_WRAPPER_TEST_CLOR_STATUS}"
+    fi
+    printf '%s' "${GH_WRAPPER_TEST_CLOR_TOKEN:-}"
+    exit 0
+fi
+
 if [[ "${1:-}" == "account" && "${2:-}" == "login" ]]; then
     cat >/dev/null
 fi

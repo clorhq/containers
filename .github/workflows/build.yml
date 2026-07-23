@@ -113,6 +113,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test the desktop image
+        if: ${{ matrix.image == 'desktop' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/desktop/Dockerfile
+          target: test
+          platforms: ${{ matrix.platform }}
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=desktop-${{ matrix.arch }}
       - id: build
         uses: docker/build-push-action@v7
         with:
@@ -123,6 +134,13 @@ jobs:
           outputs: type=image,name=ghcr.io/clorhq/software-development-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+      - name: Test the desktop runtime
+        if: ${{ matrix.image == 'desktop' }}
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          IMAGE="ghcr.io/clorhq/software-development-desktop@${IMAGE_DIGEST}"
+          bash images/desktop/tests/runtime "${IMAGE}"
       - name: Export digest
         run: |
           mkdir --parents /tmp/digests
