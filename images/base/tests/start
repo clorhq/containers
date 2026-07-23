@@ -49,6 +49,8 @@ grep --fixed-strings --quiet 'update failed' "${TEST_ROOT}/stderr.log" ||
 # Arguments select the dev-container passthrough: readiness is marked and
 # the command runs as the space user, in their home, on the space PATH.
 reset_state
+# The quoted variables intentionally expand in the passthrough shell.
+# shellcheck disable=SC2016
 PASSTHROUGH="$(env --ignore-environment PATH="${SYSTEM_PATH}" HOME=/root "${START}" \
     bash -c 'printf "%s %s %s %s" "$(id --user --name)" "$PWD" "$HOME" "$PATH"')"
 read -r RUN_USER RUN_DIRECTORY RUN_HOME RUN_PATH <<<"${PASSTHROUGH}"
