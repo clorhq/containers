@@ -11,9 +11,15 @@ fi
 IMAGE="$1"
 CONTAINER_NAME="clor-desktop-runtime-$RANDOM-$$"
 READY_TIMEOUT_SECONDS="300"
+SPACE_ID="runtime-test-space"
+TESTS_DIRECTORY="$(cd "$(dirname "$0")" && pwd)"
+FAKE_PLANE_PID=""
 
 cleanup() {
     docker rm --force "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    if [[ -n "${FAKE_PLANE_PID}" ]]; then
+        kill "${FAKE_PLANE_PID}" >/dev/null 2>&1 || true
+    fi
 }
 
 fail() {
@@ -49,7 +55,41 @@ trap cleanup EXIT
 if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
     docker pull "${IMAGE}" >/dev/null
 fi
-docker run --detach --name "${CONTAINER_NAME}" "${IMAGE}" >/dev/null
+
+# A fake control plane on the host serves the daemon's boot fetch for a
+# space with no tabs, repository, or scripts; the container reaches it
+# through the host gateway alias.
+FAKE_PLANE_OUTPUT="$(mktemp)"
+python3 "${TESTS_DIRECTORY}/fake-plane" "${SPACE_ID}" >"${FAKE_PLANE_OUTPUT}" &
+FAKE_PLANE_PID="$!"
+for ((WAITED = 0; WAITED < 50; WAITED++)); do
+    if [[ -s "${FAKE_PLANE_OUTPUT}" ]]; then
+        break
+    fi
+    sleep 0.1
+done
+FAKE_PLANE_PORT="$(<"${FAKE_PLANE_OUTPUT}")"
+rm --force "${FAKE_PLANE_OUTPUT}"
+[[ -n "${FAKE_PLANE_PORT}" ]] || fail "fake plane did not report its port"
+FAKE_PLANE_URL="http://host.docker.internal:${FAKE_PLANE_PORT}"
+
+# CLOR_BINARY mounts a locally built clor over the baked release (the
+# space PATH resolves the space user's copy first, and the read-only
+# mount also defeats the wrapper's self-update), so image changes are
+# testable before a CLI release ships.
+declare -a RUN_ARGUMENTS=(
+    --detach
+    --name "${CONTAINER_NAME}"
+    --add-host host.docker.internal:host-gateway
+    --env "CLOR_SPACE_ID=${SPACE_ID}"
+    --env "CLOR_API_KEY=clor_runtime_test_key"
+    --env "CLOR_API_BASE_URL=${FAKE_PLANE_URL}"
+    --env "CLOR_API_CONTROL_PLANE_BASE_URL=${FAKE_PLANE_URL}"
+)
+if [[ -n "${CLOR_BINARY:-}" ]]; then
+    RUN_ARGUMENTS+=(--volume "${CLOR_BINARY}:/home/user/.local/bin/clor:ro")
+fi
+docker run "${RUN_ARGUMENTS[@]}" "${IMAGE}" >/dev/null
 
 deadline="$((SECONDS + READY_TIMEOUT_SECONDS))"
 while ((SECONDS < deadline)); do
@@ -142,7 +182,17 @@ with socket.create_connection(("127.0.0.1", 6080), timeout=5) as connection:
     assert frame[offset : offset + payload_length].startswith(b"RFB ")
 PYTHON
 
-# Restart VNC while code-server continues to own port 6000.
-docker exec "${CONTAINER_NAME}" sv restart desktop-vnc >/dev/null
+# Kill VNC and let the space daemon's supervisor respawn it while
+# code-server continues to own port 6000.
+docker exec "${CONTAINER_NAME}" pkill --full 'Xtigervnc.*:1' >/dev/null
+sleep 1
 wait_for_listener 5900
 listener_exists 6000 || fail "code-server stopped listening after VNC restart"
+
+# The host contract: SIGTERM stops the space daemon with the folded
+# signal code.
+docker stop --time 30 "${CONTAINER_NAME}" >/dev/null
+EXIT_CODE="$(docker inspect --format '{{.State.ExitCode}}' "${CONTAINER_NAME}")"
+[[ "${EXIT_CODE}" == "143" ]] || fail "container exit code = ${EXIT_CODE}, want 143"
+
+printf 'desktop runtime test: ok\n'

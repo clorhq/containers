@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Minimal control plane for container runtime tests.
+
+Serves just enough of the plane and gateway surface for the in-container
+space daemon to boot a space with no tabs, no repository, and no scripts:
+the bootstrap fetch, the space event append, the activity report, and the
+credential attachment list. Everything else is 404, which the daemon
+degrades through by design.
+"""
+
+import json
+import re
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+SPACE_ID = sys.argv[1] if len(sys.argv) > 1 else "runtime-test-space"
+PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+
+
+class PlaneHandler(BaseHTTPRequestHandler):
+    def log_message(self, log_format, *arguments):
+        pass
+
+    def reply(self, status, body=None):
+        payload = b"" if body is None else json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def drain(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length:
+            self.rfile.read(length)
+
+    def do_GET(self):
+        if self.path == f"/v1/spaces/{SPACE_ID}/bootstrap":
+            self.reply(200, {"space": {"id": SPACE_ID, "name": "runtime test"}})
+            return
+        if self.path == f"/v1/spaces/{SPACE_ID}/credentials":
+            self.reply(200, {"credentials": []})
+            return
+        self.reply(404, {"error": "not found"})
+
+    def do_POST(self):
+        self.drain()
+        if re.fullmatch(f"/v1/spaces/{SPACE_ID}/events", self.path):
+            self.reply(200, {"id": "event", "space_id": SPACE_ID})
+            return
+        if re.fullmatch(f"/v1/spaces/{SPACE_ID}/activity", self.path):
+            self.reply(204)
+            return
+        self.reply(404, {"error": "not found"})
+
+    def do_PUT(self):
+        self.drain()
+        self.reply(404, {"error": "not found"})
+
+
+server = ThreadingHTTPServer(("0.0.0.0", PORT), PlaneHandler)
+print(server.server_address[1], flush=True)
+server.serve_forever()

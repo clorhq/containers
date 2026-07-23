@@ -1,0 +1,4 @@
+# The desktop's VNC server, supervised by the space daemon. Loopback
+# only; the web proxy fronts it. Its port gates container readiness.
+command = ["desktop-vnc"]
+readiness_port = 5900

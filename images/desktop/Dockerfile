@@ -28,10 +28,10 @@ RUN test "$(grep --fixed-strings --count \
   && grep --fixed-strings --line-regexp \
     'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop
 
-COPY --chmod=0755 images/desktop/services/vnc/run /etc/service/desktop-vnc/run
-COPY --chmod=0755 images/desktop/services/web/run /etc/service/desktop-web/run
-COPY --chmod=0755 images/desktop/services/vnc/log/run /etc/service/desktop-vnc/log/run
-COPY --chmod=0755 images/desktop/services/web/log/run /etc/service/desktop-web/log/run
+COPY --chmod=0755 images/desktop/bin/desktop-vnc /usr/local/bin/desktop-vnc
+COPY --chmod=0755 images/desktop/bin/desktop-web /usr/local/bin/desktop-web
+COPY --chmod=0644 images/desktop/services/desktop-vnc.toml /etc/clor/services/desktop-vnc.toml
+COPY --chmod=0644 images/desktop/services/desktop-web.toml /etc/clor/services/desktop-web.toml
 COPY --chmod=0755 images/desktop/xstartup /usr/local/lib/clor/desktop-xstartup
 COPY images/desktop/index.html /usr/share/novnc/index.html
 COPY images/desktop/wallpaper.svg /usr/share/backgrounds/clor/clor-dark.svg
@@ -57,10 +57,6 @@ RUN curl --fail --silent --show-error --location \
     "1920x1080" \
   && rm --force /tmp/clor-dark-base.png /tmp/clor-logo.png
 
-RUN mkdir --parents /var/log/desktop-vnc /var/log/desktop-web \
-  && printf 's100000000\nn3\n' >/var/log/desktop-vnc/config \
-  && printf 's100000000\nn3\n' >/var/log/desktop-web/config
-
 ENV VNC_GEOMETRY="1920x1080"
 EXPOSE 6080
 
@@ -72,21 +68,18 @@ COPY --chmod=0755 images/desktop/tests /usr/local/lib/clor/desktop-tests
 RUN grep --fixed-strings --line-regexp \
     'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop \
   && bash -n \
-    /etc/service/desktop-vnc/run \
-    /etc/service/desktop-web/run \
-    /etc/service/desktop-vnc/log/run \
-    /etc/service/desktop-web/log/run \
+    /usr/local/bin/desktop-vnc \
+    /usr/local/bin/desktop-web \
     /usr/local/lib/clor/desktop-xstartup \
     /usr/local/lib/clor/desktop-tests/runtime \
   && shellcheck \
-    /etc/service/desktop-vnc/run \
-    /etc/service/desktop-web/run \
-    /etc/service/desktop-vnc/log/run \
-    /etc/service/desktop-web/log/run \
+    /usr/local/bin/desktop-vnc \
+    /usr/local/bin/desktop-web \
     /usr/local/lib/clor/desktop-xstartup \
     /usr/local/lib/clor/desktop-tests/runtime \
   && shfmt -d -i 4 -ci \
-    /etc/service/desktop-vnc/run \
+    /usr/local/bin/desktop-vnc \
+    /usr/local/bin/desktop-web \
     /usr/local/lib/clor/desktop-tests/runtime
 
 FROM desktop AS production

@@ -1,0 +1,9 @@
+#!/bin/bash
+# noVNC's browser client and WebSocket proxy, launched by the space
+# daemon as the space user. The daemon owns the privilege drop and the
+# log capture, so there is no gosu and no redirection here.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+exec websockify --web /usr/share/novnc 0.0.0.0:6080 127.0.0.1:5900

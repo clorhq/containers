@@ -1,0 +1,23 @@
+#!/bin/bash
+# TigerVNC on display :1, launched by the space daemon as the space user.
+# The daemon owns the privilege drop and the log capture, so there is no
+# gosu and no redirection here.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Display :0's X11 socket is TCP port 6000, which is reserved for
+# code-server. Clear stale display :1 state left by a stopped server
+# before the supervisor restarts it.
+tigervncserver -kill :1 >/dev/null 2>&1 || true
+rm --force /tmp/.X1-lock /tmp/.X11-unix/X1
+
+exec tigervncserver :1 \
+    -fg \
+    -localhost yes \
+    -SecurityTypes None \
+    -rfbport 5900 \
+    -UseBlacklist 0 \
+    -geometry "${VNC_GEOMETRY:-1920x1080}" \
+    -depth 24 \
+    -xstartup /usr/local/lib/clor/desktop-xstartup

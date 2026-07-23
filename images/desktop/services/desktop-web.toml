@@ -1,0 +1,4 @@
+# noVNC's browser client and WebSocket proxy, supervised by the space
+# daemon. Its port gates container readiness.
+command = ["desktop-web"]
+readiness_port = 6080
