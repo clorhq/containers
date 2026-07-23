@@ -32,7 +32,7 @@ fi
 # A transient update failure must not hide the baked Clor release.
 if ! curl --fail --silent --show-error --location https://clor.com/install.sh |
     gosu "${SPACE_USER}" env HOME="${SPACE_HOME}" PATH="${SPACE_PATH}" bash >/dev/null; then
-    printf 'start: Clor update failed; continuing with the baked release\n' >&2
+    printf 'start: Clor update failed, using existing version.\n' >&2
 fi
 
 # The daemon stays root (it is the container's init and drops privileges
