@@ -1,0 +1,63 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+START="/usr/local/lib/clor/start"
+TEST_ROOT="/tmp/clor-start-tests"
+STUBS_DIRECTORY="/usr/local/lib/clor/tests/bin"
+SYSTEM_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+READY_FILE="/run/clor/ready"
+
+fail() {
+    printf 'start test: %s\n' "$*" >&2
+    exit 1
+}
+
+reset_state() {
+    rm --recursive --force "${TEST_ROOT}"
+    rm --force "${READY_FILE}"
+    mkdir --parents "${TEST_ROOT}"
+    : >"${TEST_ROOT}/clor.log"
+}
+
+# The managed path updates Clor best-effort, then execs the space daemon
+# without pre-marking readiness (the daemon owns the marker).
+reset_state
+env -i \
+    PATH="${STUBS_DIRECTORY}:${SYSTEM_PATH}" \
+    HOME=/root \
+    BOOTSTRAP_TEST_CLOR_LOG="${TEST_ROOT}/clor.log" \
+    "${START}"
+grep --fixed-strings --quiet 'space daemon' "${TEST_ROOT}/clor.log" ||
+    fail 'managed path did not exec the space daemon'
+[[ ! -e "${READY_FILE}" ]] || fail 'managed path must not pre-mark readiness'
+
+# An unreachable release server degrades to the baked release.
+reset_state
+env -i \
+    PATH="${STUBS_DIRECTORY}:${SYSTEM_PATH}" \
+    HOME=/root \
+    START_TEST_CURL_STATUS=7 \
+    BOOTSTRAP_TEST_CLOR_LOG="${TEST_ROOT}/clor.log" \
+    "${START}" 2>"${TEST_ROOT}/stderr.log"
+grep --fixed-strings --quiet 'space daemon' "${TEST_ROOT}/clor.log" ||
+    fail 'update failure blocked the space daemon'
+grep --fixed-strings --quiet 'update failed' "${TEST_ROOT}/stderr.log" ||
+    fail 'update failure was not reported'
+
+# Arguments select the dev-container passthrough: readiness is marked and
+# the command runs as the space user, in their home, on the space PATH.
+reset_state
+PASSTHROUGH="$(env -i PATH="${SYSTEM_PATH}" HOME=/root "${START}" \
+    bash -c 'printf "%s %s %s %s" "$(id -un)" "$PWD" "$HOME" "$PATH"')"
+read -r RUN_USER RUN_DIRECTORY RUN_HOME RUN_PATH <<<"${PASSTHROUGH}"
+[[ "${RUN_USER}" == "user" ]] || fail "passthrough user = ${RUN_USER}"
+[[ "${RUN_DIRECTORY}" == "/home/user" ]] || fail "passthrough directory = ${RUN_DIRECTORY}"
+[[ "${RUN_HOME}" == "/home/user" ]] || fail "passthrough home = ${RUN_HOME}"
+[[ "${RUN_PATH}" == "/home/user/.local/bin:"* ]] || fail "passthrough path = ${RUN_PATH}"
+[[ -f "${READY_FILE}" ]] || fail 'passthrough did not mark readiness'
+
+rm --recursive --force "${TEST_ROOT}"
+rm --force "${READY_FILE}"
+printf 'start test: ok\n'

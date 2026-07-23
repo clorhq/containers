@@ -3,6 +3,10 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-# The entrypoint pipes the installer into Bash; an empty successful script
-# keeps the behavioral tests offline.
+# The start wrapper pipes the installer into Bash; an empty successful
+# script keeps the behavioral tests offline. START_TEST_CURL_STATUS
+# simulates an unreachable release server.
+if [[ "${START_TEST_CURL_STATUS:-0}" != "0" ]]; then
+    exit "${START_TEST_CURL_STATUS}"
+fi
 printf '#!/bin/bash\nexit 0\n'

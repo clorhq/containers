@@ -1,0 +1,13 @@
+# The browser editor, supervised by the space daemon. It runs as the
+# space user in the space working directory (the repository checkout when
+# one exists) and gates container readiness on its port.
+command = [
+    "code-server",
+    "--auth", "none",
+    "--disable-telemetry",
+    "--disable-workspace-trust",
+    "--disable-getting-started-override",
+    "--bind-addr", "0.0.0.0:6000",
+    ".",
+]
+readiness_port = 6000

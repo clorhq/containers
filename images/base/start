@@ -1,0 +1,41 @@
+#!/bin/bash
+# The image entrypoint. With arguments, a dev-container passthrough: mark
+# the container ready and run the command as the space user. With none,
+# the managed path: best-effort Clor self-update, then hand the container
+# to the space daemon, which is the init and supervisor of everything
+# else.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+SPACE_USER="${CLOR_SPACE_USER:-user}"
+SPACE_HOME="${CLOR_SPACE_HOME:-/home/user}"
+SPACE_PATH="${SPACE_HOME}/.local/bin:${SPACE_HOME}/go/bin:${SPACE_HOME}/.npm-global/bin"
+if [[ -n "${CLOR_SPACE_PATH_PREFIX:-}" ]]; then
+    SPACE_PATH="${SPACE_PATH}:${CLOR_SPACE_PATH_PREFIX}"
+fi
+SPACE_PATH="${SPACE_PATH}:${PATH}"
+
+if (($# > 0)); then
+    mkdir --parents /run/clor
+    : >/run/clor/ready
+    cd "${SPACE_HOME}"
+    exec gosu "${SPACE_USER}" env \
+        HOME="${SPACE_HOME}" \
+        USER="${SPACE_USER}" \
+        LOGNAME="${SPACE_USER}" \
+        PATH="${SPACE_PATH}" \
+        PLAYWRIGHT_BROWSERS_PATH="${SPACE_HOME}/.cache/ms-playwright" \
+        "$@"
+fi
+
+# A transient update failure must not hide the baked Clor release.
+if ! curl --fail --silent --show-error --location https://clor.com/install.sh |
+    gosu "${SPACE_USER}" env HOME="${SPACE_HOME}" PATH="${SPACE_PATH}" bash >/dev/null; then
+    printf 'start: Clor update failed; continuing with the baked release\n' >&2
+fi
+
+# The daemon stays root (it is the container's init and drops privileges
+# per child itself); the space PATH puts the space user's clor release
+# first.
+exec env PATH="${SPACE_PATH}" clor space daemon

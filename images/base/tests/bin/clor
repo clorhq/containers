@@ -49,10 +49,7 @@ if [[ "${1:-}" == "account" && "${2:-}" == "login" ]]; then
 fi
 
 if [[ "${1:-}" == "space" && "${2:-}" == "daemon" ]]; then
-    mkdir --parents /run/clor/space-daemon
-    : >/run/clor/space-daemon/credentials-ready
-    trap 'exit 0' TERM INT
-    while :; do
-        sleep 1
-    done
+    # The start wrapper execs the daemon; the stub records the invocation
+    # (via the log write above) and returns.
+    exit 0
 fi

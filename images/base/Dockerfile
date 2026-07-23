@@ -27,8 +27,6 @@ RUN apt-get update && apt-get install --yes \
   make \
   ripgrep \
   g++ \
-  dumb-init \
-  runit \
   build-essential \
   xz-utils \
   gosu \
@@ -291,24 +289,18 @@ RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode
   && test "$(jq --raw-output .main "${github_auth_package}")" = \
     "./clor-adapter.js"
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
-COPY images/base/lifecycle /usr/local/src/clor-lifecycle
-RUN cd /usr/local/src/clor-lifecycle \
-  && go test -count=1 ./... \
-  && CLOR_LIFECYCLE_INTEGRATION=1 go test -count=1 \
-    -run 'TestDumbInitIntegration|TestCoordinatorIntegrationHelper' ./... \
-  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
-    -o /usr/local/lib/clor/lifecycle . \
-  && rm --recursive --force /usr/local/src/clor-lifecycle
-COPY --chmod=0755 images/base/entrypoint /usr/local/lib/clor/entrypoint
-COPY --chmod=0755 images/base/stop-services /usr/local/lib/clor/stop-services
+COPY --chmod=0755 images/base/start /usr/local/lib/clor/start
+COPY --chmod=0644 images/base/services/code-server.toml /etc/clor/services/code-server.toml
 RUN mkdir --parents \
-  /etc/service \
-  /var/lib/clor
+  /etc/clor/services \
+  /var/lib/clor \
+  /var/log/clor
 
 ENV CLOR_SPACE_USER="user"
 ENV CLOR_SPACE_HOME="/home/user"
+ENV CLOR_SPACE_DIRECTORY="/space"
 WORKDIR /root
-ENTRYPOINT ["/usr/bin/dumb-init", "--single-child", "--", "/usr/local/lib/clor/lifecycle", "/usr/local/lib/clor/entrypoint"]
+ENTRYPOINT ["/usr/local/lib/clor/start"]
 
 # Exercise the completed image without copying test assets into production.
 FROM base AS test
@@ -336,14 +328,9 @@ RUN test "${HOME}" = /root \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
-    /usr/local/lib/clor/entrypoint \
-    /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
-    /usr/local/lib/clor/tests/entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-container \
-    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
-    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
+    /usr/local/lib/clor/tests/start \
     /etc/profile.d/clor-space-tools.sh \
   && node --check \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-adapter.js \
@@ -355,34 +342,24 @@ RUN test "${HOME}" = /root \
   && shellcheck \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
-    /usr/local/lib/clor/entrypoint \
-    /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
-    /usr/local/lib/clor/tests/entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-container \
-    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
-    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
+    /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
-    /usr/local/lib/clor/entrypoint \
-    /usr/local/lib/clor/stop-services \
+    /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
-    /usr/local/lib/clor/tests/entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-container \
-    /usr/local/lib/clor/tests/lifecycle-runtime-archive-child \
-    /usr/local/lib/clor/tests/lifecycle-runtime-entrypoint \
-    /usr/local/lib/clor/tests/lifecycle-runtime-tab \
+    /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /etc/profile.d/clor-space-tools.sh \
   && node /usr/local/lib/clor/tests/github-authentication.js \
   && /usr/local/lib/clor/tests/gh \
-  && /usr/local/lib/clor/tests/entrypoint
+  && /usr/local/lib/clor/tests/start
 RUN gosu user env \
     HOME=/home/user \
     PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright \
