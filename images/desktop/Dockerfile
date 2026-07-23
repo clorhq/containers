@@ -57,6 +57,9 @@ RUN curl --fail --silent --show-error --location \
     "1920x1080" \
   && rm --force /tmp/clor-dark-base.png /tmp/clor-logo.png
 
+# Every tab inherits the image environment from the space daemon, so X
+# applications launched from terminals target the TigerVNC desktop.
+ENV DISPLAY=":1"
 ENV VNC_GEOMETRY="1920x1080"
 EXPOSE 6080
 
@@ -65,7 +68,8 @@ WORKDIR /root
 FROM desktop AS test
 
 COPY --chmod=0755 images/desktop/tests /usr/local/lib/clor/desktop-tests
-RUN grep --fixed-strings --line-regexp \
+RUN test "${DISPLAY}" = :1 \
+  && grep --fixed-strings --line-regexp \
     'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop \
   && bash -n \
     /usr/local/bin/desktop-vnc \
