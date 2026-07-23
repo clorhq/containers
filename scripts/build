@@ -27,7 +27,7 @@ docker buildx build --builder "${BUILDER}" --load \
     ${EXTRA_BUILD_ARGS} \
     .
 
-for VARIANT in rust go typescript python zig ruby desktop; do
+for VARIANT in rust python zig ruby desktop; do
     echo "==> building software-development-${VARIANT}"
     docker buildx build --builder "${BUILDER}" --load \
         --tag "software-development-${VARIANT}:latest" \

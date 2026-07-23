@@ -111,12 +111,37 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/node "${NODE_VERSION}"
 
+# Install additional JavaScript runtimes and tooling system-wide.
+# Version source: https://api.github.com/repos/oven-sh/bun/releases/latest
+ARG BUN_VERSION="1.3.14"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/bun "${BUN_VERSION}"
+
+# Version source: https://api.github.com/repos/denoland/deno/releases/latest
+ARG DENO_VERSION="2.9.2"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/deno "${DENO_VERSION}"
+
+# Tailwind CSS standalone CLI.
+ARG TAILWINDCSS_VERSION="4.1.13"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/tailwindcss "${TAILWINDCSS_VERSION}"
+
 # Install Go system-wide.
 # Version source: https://go.dev/VERSION?m=text
 ARG GO_VERSION="1.26.5"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/go "${GO_VERSION}"
+
+# Install golangci-lint system-wide.
+ARG GOLANGCI_LINT_VERSION="2.12.2"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/golangci-lint "${GOLANGCI_LINT_VERSION}"
 
 # Install uv system-wide.
 ARG UV_VERSION="0.11.28"
@@ -208,6 +233,13 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
   /installers/claude "${CLAUDE_VERSION}"
 
+# Install Go language tooling for the space user.
+ARG GOPLS_VERSION="0.21.1"
+RUN go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
+
+ARG DELVE_VERSION="1.7.3"
+RUN go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}"
+
 # Configure per-user npm globals.
 RUN mkdir --parents /home/user/.npm-global \
   && npm config set prefix /home/user/.npm-global
@@ -223,11 +255,15 @@ RUN corepack enable --install-directory /home/user/.npm-global/bin \
   && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
   && corepack prepare "yarn@${YARN_VERSION}" --activate
 
-# Install core TypeScript tools.
+# Install TypeScript developer tooling.
 # Version source: https://registry.npmjs.org/typescript/latest
 ARG TYPESCRIPT_VERSION="7.0.2"
 ARG TSX_VERSION="4.23.1"
-RUN npm install --global "typescript@${TYPESCRIPT_VERSION}" "tsx@${TSX_VERSION}"
+RUN npm install --global \
+  "typescript@${TYPESCRIPT_VERSION}" \
+  "tsx@${TSX_VERSION}" \
+  eslint \
+  prettier
 
 # Install Playwright and the complete browser stack.
 # Version source: https://registry.npmjs.org/@playwright/test/latest
@@ -313,7 +349,17 @@ RUN test "${HOME}" = /root \
   && bash --login -c 'test "${HOME}" = /root \
       && test "${PATH}" = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /root/.cache/ms-playwright' \
-  && command -v shellcheck shfmt xvfb-run >/dev/null \
+  && command -v \
+    bun \
+    bunx \
+    deno \
+    go \
+    golangci-lint \
+    shellcheck \
+    shfmt \
+    tailwindcss \
+    xvfb-run \
+    >/dev/null \
   && gosu user env \
     HOME=/home/user \
     PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:${PATH}" \
@@ -324,7 +370,7 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
-      && command -v playwright >/dev/null' \
+      && command -v dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \

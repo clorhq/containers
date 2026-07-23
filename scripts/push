@@ -25,7 +25,7 @@ docker buildx build --push \
     ${EXTRA_BUILD_ARGS} \
     .
 
-for VARIANT in rust go typescript python zig ruby desktop; do
+for VARIANT in rust python zig ruby desktop; do
     IMAGE="${REGISTRY}/software-development-${VARIANT}"
     echo "==> building and pushing ${IMAGE}"
     docker buildx build --push \
