@@ -73,10 +73,10 @@ rm --force "${FAKE_PLANE_OUTPUT}"
 [[ -n "${FAKE_PLANE_PORT}" ]] || fail "fake plane did not report its port"
 FAKE_PLANE_URL="http://host.docker.internal:${FAKE_PLANE_PORT}"
 
-# CLOR_BINARY mounts a locally built clor over the baked release (the
-# space PATH resolves the space user's copy first, and the read-only
-# mount also defeats the wrapper's self-update), so image changes are
-# testable before a CLI release ships.
+# CLOR_BINARY mounts a locally built clor over the baked release's
+# resolved install path, so image changes are testable before a CLI
+# release ships. The wrapper's self-update is defeated with a failing
+# curl stub, keeping the test hermetic and the mounted binary in charge.
 declare -a RUN_ARGUMENTS=(
     --detach
     --name "${CONTAINER_NAME}"
@@ -87,7 +87,16 @@ declare -a RUN_ARGUMENTS=(
     --env "CLOR_API_CONTROL_PLANE_BASE_URL=${FAKE_PLANE_URL}"
 )
 if [[ -n "${CLOR_BINARY:-}" ]]; then
-    RUN_ARGUMENTS+=(--volume "${CLOR_BINARY}:/home/user/.local/bin/clor:ro")
+    BAKED_CLOR_PATH="$(docker run --rm --entrypoint readlink "${IMAGE}" \
+        -f /home/user/.local/bin/clor)"
+    [[ -n "${BAKED_CLOR_PATH}" ]] || fail "could not resolve the baked clor path"
+    CURL_STUB="$(mktemp)"
+    printf '#!/bin/bash\nexit 7\n' >"${CURL_STUB}"
+    chmod 0755 "${CURL_STUB}"
+    RUN_ARGUMENTS+=(
+        --volume "${CLOR_BINARY}:${BAKED_CLOR_PATH}:ro"
+        --volume "${CURL_STUB}:/usr/local/bin/curl:ro"
+    )
 fi
 docker run "${RUN_ARGUMENTS[@]}" "${IMAGE}" >/dev/null
 
