@@ -24,7 +24,7 @@ reset_state() {
 # The managed path updates Clor best-effort, then execs the space daemon
 # without pre-marking readiness (the daemon owns the marker).
 reset_state
-env -i \
+env --ignore-environment \
     PATH="${STUBS_DIRECTORY}:${SYSTEM_PATH}" \
     HOME=/root \
     BOOTSTRAP_TEST_CLOR_LOG="${TEST_ROOT}/clor.log" \
@@ -35,7 +35,7 @@ grep --fixed-strings --quiet 'space daemon' "${TEST_ROOT}/clor.log" ||
 
 # An unreachable release server degrades to the baked release.
 reset_state
-env -i \
+env --ignore-environment \
     PATH="${STUBS_DIRECTORY}:${SYSTEM_PATH}" \
     HOME=/root \
     START_TEST_CURL_STATUS=7 \
@@ -49,8 +49,8 @@ grep --fixed-strings --quiet 'update failed' "${TEST_ROOT}/stderr.log" ||
 # Arguments select the dev-container passthrough: readiness is marked and
 # the command runs as the space user, in their home, on the space PATH.
 reset_state
-PASSTHROUGH="$(env -i PATH="${SYSTEM_PATH}" HOME=/root "${START}" \
-    bash -c 'printf "%s %s %s %s" "$(id -un)" "$PWD" "$HOME" "$PATH"')"
+PASSTHROUGH="$(env --ignore-environment PATH="${SYSTEM_PATH}" HOME=/root "${START}" \
+    bash -c 'printf "%s %s %s %s" "$(id --user --name)" "$PWD" "$HOME" "$PATH"')"
 read -r RUN_USER RUN_DIRECTORY RUN_HOME RUN_PATH <<<"${PASSTHROUGH}"
 [[ "${RUN_USER}" == "user" ]] || fail "passthrough user = ${RUN_USER}"
 [[ "${RUN_DIRECTORY}" == "/home/user" ]] || fail "passthrough directory = ${RUN_DIRECTORY}"

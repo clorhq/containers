@@ -88,7 +88,7 @@ declare -a RUN_ARGUMENTS=(
 )
 if [[ -n "${CLOR_BINARY:-}" ]]; then
     BAKED_CLOR_PATH="$(docker run --rm --entrypoint readlink "${IMAGE}" \
-        -f /home/user/.local/bin/clor)"
+        --canonicalize /home/user/.local/bin/clor)"
     [[ -n "${BAKED_CLOR_PATH}" ]] || fail "could not resolve the baked clor path"
     CURL_STUB="$(mktemp)"
     printf '#!/bin/bash\nexit 7\n' >"${CURL_STUB}"
