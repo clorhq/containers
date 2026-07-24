@@ -3,9 +3,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-printf 'npx' >>"${REMOTION_TEST_LOG}"
-printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
-printf '\n' >>"${REMOTION_TEST_LOG}"
+{
+    printf 'npx'
+    printf ' %q' "$@"
+    printf '\n'
+} >>"${REMOTION_TEST_LOG}"
 
 for argument in "$@"; do
     if [[ "${argument}" == "create-video@latest" ]]; then

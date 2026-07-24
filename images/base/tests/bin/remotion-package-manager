@@ -4,9 +4,11 @@ set -o nounset
 set -o pipefail
 
 manager="${0##*/}"
-printf '%s' "${manager}" >>"${REMOTION_TEST_LOG}"
-printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
-printf '\n' >>"${REMOTION_TEST_LOG}"
+{
+    printf '%s' "${manager}"
+    printf ' %q' "$@"
+    printf '\n'
+} >>"${REMOTION_TEST_LOG}"
 
 if [[ "${1:-}" == "install" || "${1:-}" == "ci" ]]; then
     mkdir --parents node_modules/.bin

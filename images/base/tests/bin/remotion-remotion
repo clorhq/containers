@@ -3,6 +3,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-printf 'remotion' >>"${REMOTION_TEST_LOG}"
-printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
-printf '\n' >>"${REMOTION_TEST_LOG}"
+{
+    printf 'remotion'
+    printf ' %q' "$@"
+    printf '\n'
+} >>"${REMOTION_TEST_LOG}"
