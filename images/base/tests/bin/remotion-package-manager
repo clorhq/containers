@@ -1,0 +1,26 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+manager="${0##*/}"
+printf '%s' "${manager}" >>"${REMOTION_TEST_LOG}"
+printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
+printf '\n' >>"${REMOTION_TEST_LOG}"
+
+if [[ "${1:-}" == "install" || "${1:-}" == "ci" ]]; then
+    mkdir --parents node_modules/.bin
+    cp "${REMOTION_TEST_BIN}/remotion-remotion" node_modules/.bin/remotion
+    chmod 0755 node_modules/.bin/remotion
+fi
+
+case "${manager} ${1:-} ${2:-} ${3:-}" in
+    "npm exec -- remotion")
+        shift 3
+        "${REMOTION_TEST_BIN}/remotion-remotion" "$@"
+        ;;
+    "pnpm exec remotion "* | "yarn run remotion "* | "bun run remotion "*)
+        shift 2
+        "${REMOTION_TEST_BIN}/remotion-remotion" "$@"
+        ;;
+esac

@@ -1,0 +1,23 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf 'npx' >>"${REMOTION_TEST_LOG}"
+printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
+printf '\n' >>"${REMOTION_TEST_LOG}"
+
+for argument in "$@"; do
+    if [[ "${argument}" == "create-video@latest" ]]; then
+        destination="${!#}"
+        mkdir --parents "${destination}/.git" "${destination}/node_modules"
+        printf '%s\n' \
+            '{"name":"remotion-video","private":true,"scripts":{"lint":"eslint .","build":"remotion bundle"},"devDependencies":{"@remotion/cli":"^4.0.0"}}' \
+            >"${destination}/package.json"
+        printf '%s\n' '{"lockfileVersion":3}' >"${destination}/package-lock.json"
+        printf '%s\n' 'scaffolded' >"${destination}/fresh.txt"
+        printf '%s\n' 'scaffold version' >"${destination}/existing.txt"
+        printf '%s\n' 'temporary git metadata' >"${destination}/.git/config"
+        exit 0
+    fi
+done

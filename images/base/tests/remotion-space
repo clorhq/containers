@@ -1,0 +1,201 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+HELPER="${REMOTION_SPACE_HELPER:-/usr/local/bin/remotion-space}"
+TEST_ROOT="/tmp/remotion-space-tests"
+SOURCE_BIN="${REMOTION_SPACE_TEST_BIN:-/usr/local/lib/clor/tests/bin}"
+STUB_BIN="${TEST_ROOT}/bin"
+SYSTEM_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+LOG="${TEST_ROOT}/commands.log"
+
+fail() {
+    printf 'remotion-space test: %s\n' "$*" >&2
+    exit 1
+}
+
+reset_log() {
+    : >"${LOG}"
+}
+
+assert_log() {
+    local expected="$1"
+    grep --quiet --fixed-strings --line-regexp "${expected}" "${LOG}" ||
+        fail "missing log line: ${expected}"
+}
+
+assert_no_log() {
+    local unexpected="$1"
+    if grep --quiet --fixed-strings "${unexpected}" "${LOG}"; then
+        fail "unexpected log content: ${unexpected}"
+    fi
+}
+
+write_package() {
+    local directory="$1"
+    local package_manager="$2"
+    local scripts="${3:-}"
+    local package_manager_field=""
+
+    if [[ -n "${package_manager}" ]]; then
+        package_manager_field="\"packageManager\":\"${package_manager}\","
+    fi
+    printf '{"name":"video","private":true,%s%s"devDependencies":{"@remotion/cli":"^4.0.0"}}\n' \
+        "${package_manager_field}" \
+        "${scripts}" \
+        >"${directory}/package.json"
+}
+
+run_helper() {
+    local directory="$1"
+    shift
+    (
+        cd "${directory}"
+        env \
+            PATH="${STUB_BIN}:${SYSTEM_PATH}" \
+            REMOTION_TEST_BIN="${SOURCE_BIN}" \
+            REMOTION_TEST_LOG="${LOG}" \
+            "${HELPER}" "$@"
+    )
+}
+
+rm --recursive --force "${TEST_ROOT}"
+mkdir --parents "${STUB_BIN}"
+ln --symbolic "${SOURCE_BIN}/remotion-npx" "${STUB_BIN}/npx"
+for manager in npm pnpm yarn bun; do
+    ln --symbolic "${SOURCE_BIN}/remotion-package-manager" "${STUB_BIN}/${manager}"
+done
+ln --symbolic "${SOURCE_BIN}/remotion-git" "${STUB_BIN}/git"
+
+# A blank repository is scaffolded outside its Git checkout, then copied in
+# without overwriting existing files or carrying temporary Git metadata.
+blank="${TEST_ROOT}/blank"
+mkdir --parents "${blank}"
+printf '%s\n' 'keep me' >"${blank}/existing.txt"
+reset_log
+run_helper "${blank}" setup
+[[ "$(cat "${blank}/existing.txt")" == "keep me" ]] || fail 'scaffold overwrote an existing file'
+[[ "$(cat "${blank}/fresh.txt")" == "scaffolded" ]] || fail 'scaffold did not copy a new file'
+[[ ! -e "${blank}/.git" ]] || fail 'scaffold copied temporary Git metadata'
+assert_log 'npm ci'
+assert_log 'npx --yes skills add remotion-dev/skills --global --yes'
+assert_log 'remotion browser ensure'
+
+# Existing projects retain their files and use the frozen install selected by
+# each supported lockfile.
+for manager in npm pnpm bun; do
+    project="${TEST_ROOT}/${manager}"
+    mkdir --parents "${project}"
+    write_package "${project}" "${manager}@1.0.0"
+    case "${manager}" in
+        npm) : >"${project}/package-lock.json" ;;
+        pnpm) : >"${project}/pnpm-lock.yaml" ;;
+        bun) : >"${project}/bun.lock" ;;
+    esac
+    printf '%s\n' 'existing' >"${project}/untouched.txt"
+    reset_log
+    run_helper "${project}" setup
+    [[ "$(cat "${project}/untouched.txt")" == "existing" ]] || fail "${manager} setup changed an existing file"
+    case "${manager}" in
+        npm) assert_log 'npm ci' ;;
+        pnpm) assert_log 'pnpm install --frozen-lockfile' ;;
+        bun) assert_log 'bun install --frozen-lockfile' ;;
+    esac
+    assert_log 'remotion browser ensure'
+done
+
+# Yarn v1 and modern Yarn have different immutable-install flags.
+yarn_v1="${TEST_ROOT}/yarn-v1"
+mkdir --parents "${yarn_v1}"
+write_package "${yarn_v1}" 'yarn@1.22.22'
+printf '%s\n' '# yarn lockfile v1' >"${yarn_v1}/yarn.lock"
+reset_log
+run_helper "${yarn_v1}" setup
+assert_log 'yarn install --frozen-lockfile'
+
+yarn_modern="${TEST_ROOT}/yarn-modern"
+mkdir --parents "${yarn_modern}"
+write_package "${yarn_modern}" 'yarn@4.1.0'
+printf '%s\n' '__metadata:' '  version: 8' >"${yarn_modern}/yarn.lock"
+reset_log
+run_helper "${yarn_modern}" setup
+assert_log 'yarn install --immutable'
+
+# With no lockfile, packageManager selects a normal install.
+unlocked="${TEST_ROOT}/unlocked"
+mkdir --parents "${unlocked}"
+write_package "${unlocked}" 'pnpm@10.0.0'
+reset_log
+run_helper "${unlocked}" setup
+assert_log 'pnpm install'
+assert_no_log 'pnpm install --frozen-lockfile'
+
+# Existing non-Remotion projects and conflicting package manager metadata fail
+# before an install or browser download.
+not_remotion="${TEST_ROOT}/not-remotion"
+mkdir --parents "${not_remotion}"
+printf '%s\n' '{"name":"not-remotion"}' >"${not_remotion}/package.json"
+reset_log
+if run_helper "${not_remotion}" setup >"${TEST_ROOT}/not-remotion.out" 2>"${TEST_ROOT}/not-remotion.err"; then
+    fail 'accepted an existing project without @remotion/cli'
+fi
+grep --quiet --fixed-strings 'must declare @remotion/cli' "${TEST_ROOT}/not-remotion.err" ||
+    fail 'missing non-Remotion project error'
+[[ ! -s "${LOG}" ]] || fail 'invalid existing project ran external commands'
+
+metadata_conflict="${TEST_ROOT}/metadata-conflict"
+mkdir --parents "${metadata_conflict}"
+write_package "${metadata_conflict}" 'pnpm@10.0.0'
+: >"${metadata_conflict}/package-lock.json"
+reset_log
+if run_helper "${metadata_conflict}" setup >"${TEST_ROOT}/metadata.out" 2>"${TEST_ROOT}/metadata.err"; then
+    fail 'accepted conflicting packageManager metadata'
+fi
+grep --quiet --fixed-strings 'conflicts with npm lockfile' "${TEST_ROOT}/metadata.err" ||
+    fail 'missing packageManager conflict error'
+
+lock_conflict="${TEST_ROOT}/lock-conflict"
+mkdir --parents "${lock_conflict}"
+write_package "${lock_conflict}" ''
+: >"${lock_conflict}/package-lock.json"
+: >"${lock_conflict}/pnpm-lock.yaml"
+reset_log
+if run_helper "${lock_conflict}" setup >"${TEST_ROOT}/lock.out" 2>"${TEST_ROOT}/lock.err"; then
+    fail 'accepted conflicting lockfiles'
+fi
+grep --quiet --fixed-strings 'conflicting lockfiles' "${TEST_ROOT}/lock.err" ||
+    fail 'missing conflicting lockfiles error'
+
+# Studio always uses the installed CLI, fixed port 3000, IPv4, and no browser.
+studio="${TEST_ROOT}/studio"
+mkdir --parents "${studio}/node_modules/.bin"
+write_package "${studio}" ''
+cp "${SOURCE_BIN}/remotion-remotion" "${studio}/node_modules/.bin/remotion"
+reset_log
+run_helper "${studio}" studio
+assert_log 'remotion studio --port 3000 --ipv4 --no-open'
+
+# Archive runs only declared checks, in lint/build/diff order, through the
+# project's selected package manager.
+archive="${TEST_ROOT}/archive"
+mkdir --parents "${archive}"
+write_package "${archive}" 'pnpm@10.0.0' '"scripts":{"lint":"eslint .","build":"remotion bundle"},'
+reset_log
+run_helper "${archive}" archive
+mapfile -t archive_log <"${LOG}"
+[[ "${archive_log[0]}" == 'pnpm run lint' ]] || fail "archive first command = ${archive_log[0]}"
+[[ "${archive_log[1]}" == 'pnpm run build' ]] || fail "archive second command = ${archive_log[1]}"
+[[ "${archive_log[2]}" == 'git diff --check' ]] || fail "archive third command = ${archive_log[2]}"
+
+lint_only="${TEST_ROOT}/lint-only"
+mkdir --parents "${lint_only}"
+write_package "${lint_only}" '' '"scripts":{"lint":"eslint ."},'
+reset_log
+run_helper "${lint_only}" archive
+assert_log 'npm run lint'
+assert_no_log 'run build'
+assert_log 'git diff --check'
+
+rm --recursive --force "${TEST_ROOT}"
+printf 'remotion-space test: ok\n'

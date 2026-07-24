@@ -1,0 +1,216 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+DETECTED_PACKAGE_MANAGER=""
+HAS_LOCKFILE=false
+SCAFFOLD_ROOT=""
+
+fail() {
+    printf 'remotion-space: %s\n' "$*" >&2
+    exit 1
+}
+
+validate_project() {
+    node <<'NODE' ||
+const fs = require("fs");
+const packageJSON = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const dependencyGroups = [
+    packageJSON.dependencies,
+    packageJSON.devDependencies,
+    packageJSON.optionalDependencies,
+    packageJSON.peerDependencies,
+];
+if (!dependencyGroups.some((dependencies) => dependencies && dependencies["@remotion/cli"])) {
+    process.exit(1);
+}
+NODE
+        fail 'package.json must declare @remotion/cli'
+}
+
+package_manager_metadata() {
+    node <<'NODE'
+const fs = require("fs");
+const packageJSON = JSON.parse(fs.readFileSync("package.json", "utf8"));
+process.stdout.write(typeof packageJSON.packageManager === "string" ? packageJSON.packageManager.trim() : "");
+NODE
+}
+
+detect_package_manager() {
+    local lock_managers=()
+    local metadata
+    local metadata_manager=""
+
+    HAS_LOCKFILE=false
+    if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+        lock_managers+=("npm")
+    fi
+    if [[ -f pnpm-lock.yaml ]]; then
+        lock_managers+=("pnpm")
+    fi
+    if [[ -f yarn.lock ]]; then
+        lock_managers+=("yarn")
+    fi
+    if [[ -f bun.lock || -f bun.lockb ]]; then
+        lock_managers+=("bun")
+    fi
+
+    if ((${#lock_managers[@]} > 1)); then
+        fail "conflicting lockfiles select multiple package managers: ${lock_managers[*]}"
+    fi
+
+    metadata="$(package_manager_metadata)"
+    if [[ -n "${metadata}" ]]; then
+        metadata_manager="${metadata%%@*}"
+        case "${metadata_manager}" in
+            npm | pnpm | yarn | bun) ;;
+            *) fail "unsupported packageManager value: ${metadata}" ;;
+        esac
+    fi
+
+    if ((${#lock_managers[@]} == 1)); then
+        DETECTED_PACKAGE_MANAGER="${lock_managers[0]}"
+        HAS_LOCKFILE=true
+        if [[ -n "${metadata_manager}" && "${metadata_manager}" != "${DETECTED_PACKAGE_MANAGER}" ]]; then
+            fail "packageManager ${metadata} conflicts with ${DETECTED_PACKAGE_MANAGER} lockfile"
+        fi
+    elif [[ -n "${metadata_manager}" ]]; then
+        DETECTED_PACKAGE_MANAGER="${metadata_manager}"
+    else
+        DETECTED_PACKAGE_MANAGER="npm"
+    fi
+}
+
+install_dependencies() {
+    case "${DETECTED_PACKAGE_MANAGER}" in
+        npm)
+            if [[ "${HAS_LOCKFILE}" == true ]]; then
+                npm ci
+            else
+                npm install
+            fi
+            ;;
+        pnpm)
+            if [[ "${HAS_LOCKFILE}" == true ]]; then
+                pnpm install --frozen-lockfile
+            else
+                pnpm install
+            fi
+            ;;
+        yarn)
+            if [[ "${HAS_LOCKFILE}" == false ]]; then
+                yarn install
+            elif grep --quiet --max-count=1 --fixed-strings '# yarn lockfile v1' yarn.lock; then
+                yarn install --frozen-lockfile
+            else
+                yarn install --immutable
+            fi
+            ;;
+        bun)
+            if [[ "${HAS_LOCKFILE}" == true ]]; then
+                bun install --frozen-lockfile
+            else
+                bun install
+            fi
+            ;;
+    esac
+}
+
+scaffold_project() {
+    SCAFFOLD_ROOT="$(mktemp --directory)"
+    trap cleanup_scaffold EXIT
+
+    npx --yes create-video@latest --yes --blank "${SCAFFOLD_ROOT}/project"
+    rsync \
+        --archive \
+        --ignore-existing \
+        --exclude=.git \
+        --exclude=node_modules \
+        "${SCAFFOLD_ROOT}/project/" \
+        ./
+    cleanup_scaffold
+    trap - EXIT
+}
+
+cleanup_scaffold() {
+    if [[ -n "${SCAFFOLD_ROOT}" ]]; then
+        rm --recursive --force "${SCAFFOLD_ROOT}"
+        SCAFFOLD_ROOT=""
+    fi
+}
+
+install_agent_skills() {
+    DISABLE_TELEMETRY=1 npx --yes skills add remotion-dev/skills --global --yes
+}
+
+remotion_command() {
+    case "${DETECTED_PACKAGE_MANAGER}" in
+        npm) npm exec -- remotion "$@" ;;
+        pnpm) pnpm exec remotion "$@" ;;
+        yarn) yarn run remotion "$@" ;;
+        bun) bun run remotion "$@" ;;
+    esac
+}
+
+setup() {
+    if [[ ! -f package.json ]]; then
+        scaffold_project
+    fi
+
+    validate_project
+    detect_package_manager
+    install_dependencies
+    install_agent_skills
+    remotion_command browser ensure
+}
+
+studio() {
+    validate_project
+    detect_package_manager
+    remotion_command studio --port 3000 --ipv4 --no-open
+}
+
+has_script() {
+    local script_name="$1"
+    SCRIPT_NAME="${script_name}" node <<'NODE'
+const fs = require("fs");
+const packageJSON = JSON.parse(fs.readFileSync("package.json", "utf8"));
+process.exit(packageJSON.scripts && typeof packageJSON.scripts[process.env.SCRIPT_NAME] === "string" ? 0 : 1);
+NODE
+}
+
+run_script() {
+    local script_name="$1"
+    case "${DETECTED_PACKAGE_MANAGER}" in
+        npm) npm run "${script_name}" ;;
+        pnpm) pnpm run "${script_name}" ;;
+        yarn) yarn run "${script_name}" ;;
+        bun) bun run "${script_name}" ;;
+    esac
+}
+
+archive() {
+    [[ -f package.json ]] || fail 'package.json is missing'
+    validate_project
+    detect_package_manager
+
+    if has_script lint; then
+        run_script lint
+    fi
+    if has_script build; then
+        run_script build
+    fi
+    git diff --check
+}
+
+if (($# != 1)); then
+    fail 'usage: remotion-space setup|studio|archive'
+fi
+
+case "$1" in
+    setup) setup ;;
+    studio) studio ;;
+    archive) archive ;;
+    *) fail "unknown command: $1" ;;
+esac

@@ -325,6 +325,7 @@ RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode
   && test "$(jq --raw-output .main "${github_auth_package}")" = \
     "./clor-adapter.js"
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
+COPY --chmod=0755 images/base/remotion-space /usr/local/bin/remotion-space
 COPY --chmod=0755 images/base/start /usr/local/lib/clor/start
 COPY --chmod=0644 images/base/services/code-server.toml /etc/clor/services/code-server.toml
 RUN mkdir --parents \
@@ -355,6 +356,7 @@ RUN test "${HOME}" = /root \
     deno \
     go \
     golangci-lint \
+    remotion-space \
     shellcheck \
     shfmt \
     tailwindcss \
@@ -374,9 +376,11 @@ RUN test "${HOME}" = /root \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
+    /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
   && node --check \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-adapter.js \
@@ -388,23 +392,36 @@ RUN test "${HOME}" = /root \
   && shellcheck \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
+    /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
+    /usr/local/lib/clor/tests/bin/remotion-git \
+    /usr/local/lib/clor/tests/bin/remotion-npx \
+    /usr/local/lib/clor/tests/bin/remotion-package-manager \
+    /usr/local/lib/clor/tests/bin/remotion-remotion \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
+    /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
+    /usr/local/lib/clor/tests/bin/remotion-git \
+    /usr/local/lib/clor/tests/bin/remotion-npx \
+    /usr/local/lib/clor/tests/bin/remotion-package-manager \
+    /usr/local/lib/clor/tests/bin/remotion-remotion \
     /etc/profile.d/clor-space-tools.sh \
   && node /usr/local/lib/clor/tests/github-authentication.js \
   && /usr/local/lib/clor/tests/gh \
+  && /usr/local/lib/clor/tests/remotion-space \
   && /usr/local/lib/clor/tests/start
 RUN gosu user env \
     HOME=/home/user \

@@ -1,0 +1,8 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf 'git' >>"${REMOTION_TEST_LOG}"
+printf ' %q' "$@" >>"${REMOTION_TEST_LOG}"
+printf '\n' >>"${REMOTION_TEST_LOG}"
