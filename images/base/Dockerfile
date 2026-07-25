@@ -219,20 +219,6 @@ RUN code-server --config /dev/null --force \
   --install-extension "golang.go@${GO_EXTENSION_VERSION}" \
   --install-extension "redhat.vscode-yaml@${YAML_EXTENSION_VERSION}"
 
-# Install Codex for the space user.
-# Version source: https://github.com/openai/codex/releases/latest
-ARG CODEX_VERSION="0.144.6"
-RUN --mount=type=bind,source=installers,target=/installers,readonly \
-  --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
-  /installers/codex "${CODEX_VERSION}"
-
-# Install Claude for the space user.
-# Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.214"
-RUN --mount=type=bind,source=installers,target=/installers,readonly \
-  --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
-  /installers/claude "${CLAUDE_VERSION}"
-
 # Install Go language tooling for the space user.
 ARG GOPLS_VERSION="0.21.1"
 RUN go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
@@ -294,12 +280,6 @@ ARG CLOR_VERSION="1.8.5"
 RUN curl --fail --silent --show-error --location https://clor.com/install.sh \
   | CLOR_VERSION="v${CLOR_VERSION}" bash
 
-# Verify home ownership.
-RUN test -z "$(find /home/user \
-    \( ! -user user -o ! -group user \) \
-    -print -quit)" \
-  && test -w /home/user
-
 USER root
 # The production entrypoint starts privileged, with no user-writable paths.
 ENV HOME="/root"
@@ -332,6 +312,21 @@ RUN mkdir --parents \
   /etc/clor/services \
   /var/lib/clor \
   /var/log/clor
+
+# Keep frequently updated agent CLIs in the final filesystem layer so version
+# bumps reuse every expensive language-tooling and browser layer above.
+# Version source: https://github.com/openai/codex/releases/latest
+ARG CODEX_VERSION="0.145.0"
+# Version source: https://downloads.claude.ai/claude-code-releases/latest
+ARG CLAUDE_VERSION="2.1.220"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
+  gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
+  && gosu user env HOME=/home/user /installers/claude "${CLAUDE_VERSION}" \
+  && test -z "$(find /home/user \
+    \( ! -user user -o ! -group user \) \
+    -print -quit)" \
+  && gosu user test -w /home/user
 
 ENV CLOR_SPACE_USER="user"
 ENV CLOR_SPACE_HOME="/home/user"
@@ -372,7 +367,7 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
-      && command -v dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
+      && command -v claude codex dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
