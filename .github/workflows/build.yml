@@ -33,6 +33,7 @@ jobs:
           file: images/base/Dockerfile
           target: test
           platforms: ${{ matrix.platform }}
+          build-args: CLOR_BUILD_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=cacheonly
           cache-from: type=gha,scope=base-${{ matrix.arch }}
       - uses: docker/login-action@v4
@@ -47,6 +48,7 @@ jobs:
           file: images/base/Dockerfile
           target: production
           platforms: ${{ matrix.platform }}
+          build-args: CLOR_BUILD_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=image,name=ghcr.io/clorhq/software-development-base,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=base-${{ matrix.arch }}

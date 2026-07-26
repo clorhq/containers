@@ -13,6 +13,7 @@ REGISTRY="ghcr.io/clorhq"
 PLATFORMS="linux/amd64,linux/arm64"
 GIT_SHA="$(git rev-parse --short HEAD)"
 EXTRA_BUILD_ARGS="${EXTRA_BUILD_ARGS:-}"
+CLOR_BUILD_NONCE="${CLOR_BUILD_NONCE:-$(date +%s)-$$}"
 
 BASE_IMAGE="${REGISTRY}/software-development-base"
 
@@ -22,6 +23,7 @@ docker buildx build --push \
     --tag "${BASE_IMAGE}:latest" \
     --tag "${BASE_IMAGE}:${GIT_SHA}" \
     --file images/base/Dockerfile \
+    --build-arg "CLOR_BUILD_NONCE=${CLOR_BUILD_NONCE}" \
     ${EXTRA_BUILD_ARGS} \
     .
 

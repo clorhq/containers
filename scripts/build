@@ -12,6 +12,7 @@ cd "${REPO_ROOT}"
 
 BASE_TAG="software-development-base"
 EXTRA_BUILD_ARGS="${EXTRA_BUILD_ARGS:-}"
+CLOR_BUILD_NONCE="${CLOR_BUILD_NONCE:-$(date +%s)-$$}"
 
 # Local builds pin the default docker-driver builder: a docker-container
 # builder (the multi-arch push path) is isolated from the host image store,
@@ -24,6 +25,7 @@ echo "==> building ${BASE_TAG}"
 docker buildx build --builder "${BUILDER}" --load \
     --tag "${BASE_TAG}:latest" \
     --file images/base/Dockerfile \
+    --build-arg "CLOR_BUILD_NONCE=${CLOR_BUILD_NONCE}" \
     ${EXTRA_BUILD_ARGS} \
     .
 

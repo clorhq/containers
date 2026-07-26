@@ -275,11 +275,6 @@ ENV DISABLE_AUTOUPDATER="1"
 COPY --chmod=0755 images/base/chromium /usr/local/bin/chromium
 ENV CHROME_PATH="/usr/local/bin/chromium"
 
-# Install the fallback Clor release.
-ARG CLOR_VERSION="1.8.5"
-RUN curl --fail --silent --show-error --location https://clor.com/install.sh \
-  | CLOR_VERSION="v${CLOR_VERSION}" bash
-
 USER root
 # The production entrypoint starts privileged, with no user-writable paths.
 ENV HOME="/root"
@@ -313,16 +308,27 @@ RUN mkdir --parents \
   /var/lib/clor \
   /var/log/clor
 
-# Keep frequently updated agent CLIs in the final filesystem layer so version
-# bumps reuse every expensive language-tooling and browser layer above.
+# Keep frequently updated agent CLIs in the final filesystem layer so rebuilds
+# reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.145.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
 ARG CLAUDE_VERSION="2.1.220"
+# The build entrypoints supply a unique value so the unpinned Clor installer
+# runs on every image build without invalidating any earlier layer.
+ARG CLOR_BUILD_NONCE
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
-  gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
+  test -n "${CLOR_BUILD_NONCE}" \
+  && gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
   && gosu user env HOME=/home/user /installers/claude "${CLAUDE_VERSION}" \
+  && curl --fail --silent --show-error --location \
+    --output /downloads/clor-install.sh https://clor.com/install.sh \
+  && gosu user env \
+    HOME=/home/user \
+    PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:${PATH}" \
+    CLOR_AUTOUPDATE=false \
+    bash /downloads/clor-install.sh \
   && test -z "$(find /home/user \
     \( ! -user user -o ! -group user \) \
     -print -quit)" \
@@ -367,7 +373,7 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
-      && command -v claude codex dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
+      && command -v claude clor codex dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
