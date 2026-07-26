@@ -2,17 +2,28 @@ name: build
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      data_only:
+        description: Build only the Data image against base_ref
+        required: false
+        default: false
+        type: boolean
+      base_ref:
+        description: Immutable Base ref used by a Data-only build
+        required: false
+        type: string
 permissions:
   contents: read
   packages: write
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ inputs.data_only && 'data' || 'full' }}
   cancel-in-progress: true
 jobs:
   # Each architecture builds on its native runner and pushes by digest; the
   # merge jobs stitch the digests into one multi-arch tag. No QEMU anywhere.
   base:
+    if: ${{ !inputs.data_only }}
     strategy:
       matrix:
         include:
@@ -66,6 +77,7 @@ jobs:
           retention-days: 1
   merge-base:
     needs: base
+    if: ${{ !inputs.data_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -163,7 +175,7 @@ jobs:
           retention-days: 1
   merge-variants:
     needs: variants
-    if: ${{ always() }}
+    if: ${{ !inputs.data_only && always() }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -191,6 +203,7 @@ jobs:
             ghcr.io/clorhq/software-development-${{ matrix.image }}:latest
   data:
     needs: merge-base
+    if: ${{ always() && (inputs.data_only || needs.merge-base.result == 'success') }}
     strategy:
       matrix:
         include:
@@ -216,7 +229,7 @@ jobs:
           file: images/data/Dockerfile
           target: test
           platforms: ${{ matrix.platform }}
-          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
+          build-args: BASE_IMAGE=${{ inputs.data_only && inputs.base_ref || 'ghcr.io/clorhq/software-development-base:latest' }}
           outputs: type=cacheonly
           cache-from: type=gha,scope=data-${{ matrix.arch }}
       - id: build
@@ -226,7 +239,7 @@ jobs:
           file: images/data/Dockerfile
           target: production
           platforms: ${{ matrix.platform }}
-          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
+          build-args: BASE_IMAGE=${{ inputs.data_only && inputs.base_ref || 'ghcr.io/clorhq/software-development-base:latest' }}
           outputs: type=image,name=ghcr.io/clorhq/software-development-data,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
