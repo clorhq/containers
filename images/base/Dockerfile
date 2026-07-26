@@ -241,7 +241,6 @@ RUN cargo-binstall --no-confirm --force \
   "mise@${MISE_VERSION}" \
   "ast-grep@${AST_GREP_VERSION}" \
   "xh@${XH_VERSION}" \
-  "hurl@${HURL_VERSION}" \
   "oha@${OHA_VERSION}" \
   "websocat@${WEBSOCAT_VERSION}" \
   "typos-cli@${TYPOS_VERSION}" \
@@ -251,6 +250,20 @@ RUN cargo-binstall --no-confirm --force \
   && if ! command -v ast-grep >/dev/null 2>&1; then \
     ln --symbolic "$(command -v sg)" /usr/local/bin/ast-grep; \
   fi
+
+# Hurl's cargo-binstall metadata does not match the layout of its current
+# release archive. Install the exact upstream archive directly and verify the
+# digest GitHub publishes for the selected architecture.
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  hurl_archive="$("/installers/verified-github-asset" Orange-OpenSource/hurl "${HURL_VERSION}" \
+    "hurl-${HURL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+    "hurl-${HURL_VERSION}-aarch64-unknown-linux-gnu.tar.gz")" \
+  && mkdir --parents /tmp/hurl \
+  && tar --extract --gzip --strip-components=1 \
+    --directory=/tmp/hurl --file="${hurl_archive}" \
+  && install --mode=0755 /tmp/hurl/bin/hurl /tmp/hurl/bin/hurlfmt /usr/local/bin/ \
+  && rm --recursive --force /tmp/hurl
 
 # Install the browser-based VS Code server.
 # Version source: https://github.com/coder/code-server/releases/latest
