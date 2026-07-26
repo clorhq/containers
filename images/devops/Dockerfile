@@ -71,16 +71,34 @@ RUN case "$(dpkg --print-architecture)" in \
   && ln --symbolic /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud \
   && rm --recursive --force /tmp/aws /tmp/awscliv2.zip /tmp/google-cloud-cli.tar.gz
 
-# Web-platform and deployment CLIs implemented in Go or Rust.
+# Provider-owned release artifacts for web-platform CLIs. These avoid source
+# builds that can reinterpret the providers' module-level replace directives,
+# and GitHub's published digest is verified for every selected asset.
 ARG FLY_VERSION="0.4.74"
 ARG RAILWAY_VERSION="5.28.1"
 ARG RENDER_VERSION="2.22.0"
 ARG DOCTL_VERSION="1.164.0"
-RUN GOBIN=/usr/local/bin go install "github.com/superfly/flyctl@v${FLY_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/render-oss/cli@v${RENDER_VERSION}" \
-  && mv /usr/local/bin/cli /usr/local/bin/render \
-  && GOBIN=/usr/local/bin go install "github.com/digitalocean/doctl/cmd/doctl@v${DOCTL_VERSION}" \
-  && cargo-binstall --no-confirm --force "railwayapp@${RAILWAY_VERSION}"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  fly_archive="$("/installers/verified-github-asset" superfly/flyctl "v${FLY_VERSION}" \
+    "flyctl_${FLY_VERSION}_Linux_x86_64.tar.gz" \
+    "flyctl_${FLY_VERSION}_Linux_arm64.tar.gz")" \
+  && tar --extract --gzip --directory=/tmp --file="${fly_archive}" \
+  && install --mode=0755 /tmp/flyctl /usr/local/bin/flyctl \
+  && ln --symbolic /usr/local/bin/flyctl /usr/local/bin/fly \
+  && render_archive="$("/installers/verified-github-asset" render-oss/cli "v${RENDER_VERSION}" \
+    "cli_${RENDER_VERSION}_linux_amd64.zip" \
+    "cli_${RENDER_VERSION}_linux_arm64.zip")" \
+  && mkdir --parents /tmp/render \
+  && unzip -q "${render_archive}" -d /tmp/render \
+  && install --mode=0755 "/tmp/render/cli_v${RENDER_VERSION}" /usr/local/bin/render \
+  && doctl_archive="$("/installers/verified-github-asset" digitalocean/doctl "v${DOCTL_VERSION}" \
+    "doctl-${DOCTL_VERSION}-linux-amd64.tar.gz" \
+    "doctl-${DOCTL_VERSION}-linux-arm64.tar.gz")" \
+  && tar --extract --gzip --directory=/tmp --file="${doctl_archive}" \
+  && install --mode=0755 /tmp/doctl /usr/local/bin/doctl \
+  && cargo-binstall --no-confirm --force "railwayapp@${RAILWAY_VERSION}" \
+  && rm --recursive --force /tmp/doctl /tmp/flyctl /tmp/render
 
 # Kubernetes, infrastructure, secret, signing, and registry tooling.
 ARG KUBECTL_VERSION="1.36.3"
