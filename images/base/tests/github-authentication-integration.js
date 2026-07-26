@@ -108,7 +108,7 @@ async function stopServer(server) {
   }
 }
 
-async function runProbe(configured, port) {
+async function runProbe(mode, port) {
   const testRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "clor-github-extension-host-"),
   );
@@ -138,8 +138,12 @@ async function runProbe(configured, port) {
     GITHUB_AUTH_PROVIDER_TEST_CLOR_LOG: clorLog,
   };
 
-  if (configured) {
-    environment.CLOR_GITHUB_CONNECTION_ID = "connection-1";
+  if (mode !== "fallback") {
+    if (mode === "configured") {
+      environment.CLOR_GITHUB_CONNECTION_ID = "connection-1";
+    } else {
+      delete environment.CLOR_GITHUB_CONNECTION_ID;
+    }
     environment.AUTH_PROBE_EXPECTED_TOKEN = token;
     environment.GITHUB_AUTH_PROVIDER_TEST_RESPONSE = JSON.stringify({
       access_token: token,
@@ -160,6 +164,7 @@ async function runProbe(configured, port) {
     delete environment.CLOR_GITHUB_CONNECTION_ID;
     delete environment.AUTH_PROBE_EXPECTED_TOKEN;
     delete environment.GITHUB_AUTH_PROVIDER_TEST_RESPONSE;
+    environment.GITHUB_AUTH_PROVIDER_TEST_CLOR_STATUS = "1";
   }
 
   fs.mkdirSync(environment.HOME, { recursive: true });
@@ -211,19 +216,16 @@ async function runProbe(configured, port) {
     assert(!commandLog.includes(token));
     assert(!codeServerLog.includes(token));
 
-    if (configured) {
+    if (mode !== "fallback") {
       assert.deepStrictEqual(JSON.parse(result), {
         account: { label: "octocat", id: "583231" },
         scopes: ["read:user", "user:email", "repo", "workflow"],
         status: "authenticated",
       });
-      assert.strictEqual(
-        commandLog,
-        "github auth --stdout-format json\n",
-      );
+      assert.strictEqual(commandLog, "github auth --stdout-format json\n");
     } else {
       assert.strictEqual(result, "delegated\n");
-      assert.strictEqual(commandLog, "");
+      assert.strictEqual(commandLog, "github auth --stdout-format json\n");
     }
     assert.deepStrictEqual(filesContaining(testRoot, token), []);
   } catch (error) {
@@ -241,8 +243,9 @@ async function runProbe(configured, port) {
 }
 
 async function main() {
-  await runProbe(true, 18_080);
-  await runProbe(false, 18_081);
+  await runProbe("configured", 18_080);
+  await runProbe("automatic", 18_081);
+  await runProbe("fallback", 18_082);
 }
 
 main().catch((error) => {

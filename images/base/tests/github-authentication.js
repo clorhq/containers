@@ -9,8 +9,9 @@ const {
   ClorGitHubAuthenticationProvider,
   wrapAuthenticationProvider,
 } = require(
-  "/usr/local/lib/code-server/4.129.0/lib/vscode/extensions/" +
-    "github-authentication/clor-github-provider.js",
+  process.env.CLOR_GITHUB_PROVIDER_PATH ??
+    "/usr/local/lib/code-server/4.129.0/lib/vscode/extensions/" +
+      "github-authentication/clor-github-provider.js",
 );
 
 class EventEmitter {
@@ -71,8 +72,14 @@ async function assertRejectsSanitized(promise) {
 }
 
 async function testDelegation() {
-  const original = {};
-  assert.strictEqual(
+  const original = {
+    async getSessions() {
+      return [];
+    },
+    async createSession() {},
+    async removeSession() {},
+  };
+  assert.notStrictEqual(
     wrapAuthenticationProvider(vscode, "github", original, ""),
     original,
   );
@@ -85,6 +92,59 @@ async function testDelegation() {
     ),
     original,
   );
+}
+
+async function testAutomaticConnectionResolutionAndFallback() {
+  const expiry = Date.now() + 10 * 60_000;
+  const delegateCalls = [];
+  const delegate = {
+    async getSessions(scopes, options) {
+      delegateCalls.push({ method: "getSessions", scopes, options });
+      return ["delegated-session"];
+    },
+    async createSession(scopes) {
+      delegateCalls.push({ method: "createSession", scopes });
+      return "delegated-created-session";
+    },
+    async removeSession(sessionId) {
+      delegateCalls.push({ method: "removeSession", sessionId });
+    },
+  };
+  const autoProvider = new ClorGitHubAuthenticationProvider(vscode, {
+    connectionId: "",
+    delegate,
+    execFile: queuedExecFile([response("auto-secret-token", expiry)], []),
+  });
+  const [session] = await autoProvider.getSessions(["repo"]);
+  assert.strictEqual(session.accessToken, "auto-secret-token");
+  assert.strictEqual(session.id.startsWith("clor-github:connection-1:"), true);
+  assert.deepStrictEqual(delegateCalls, []);
+  autoProvider.dispose();
+
+  const fallbackProvider = new ClorGitHubAuthenticationProvider(vscode, {
+    connectionId: "",
+    delegate,
+    execFile: queuedExecFile(
+      [new Error("ambiguous connection"), new Error("ambiguous connection")],
+      [],
+    ),
+  });
+  const options = { silent: true };
+  assert.deepStrictEqual(
+    await fallbackProvider.getSessions(["repo"], options),
+    ["delegated-session"],
+  );
+  assert.strictEqual(
+    await fallbackProvider.createSession(["workflow"]),
+    "delegated-created-session",
+  );
+  await fallbackProvider.removeSession("delegated-session-id");
+  assert.deepStrictEqual(delegateCalls, [
+    { method: "getSessions", scopes: ["repo"], options },
+    { method: "createSession", scopes: ["workflow"] },
+    { method: "removeSession", sessionId: "delegated-session-id" },
+  ]);
+  fallbackProvider.dispose();
 }
 
 async function testSessionsRefreshAndExpiry() {
@@ -153,9 +213,7 @@ async function testSessionsRefreshAndExpiry() {
   assert.strictEqual(events.length, 2);
 
   now = secondExpiry + 1;
-  await assertRejectsSanitized(
-    provider.getSessions(["repo", "workflow"]),
-  );
+  await assertRejectsSanitized(provider.getSessions(["repo", "workflow"]));
   assert.strictEqual(calls.length, 4);
   assert.strictEqual(events.length, 3);
   assert.deepStrictEqual(events[2].removed, [duringFailure]);
@@ -193,7 +251,8 @@ async function testClorStubAndNoPersistence() {
   fs.writeFileSync(clorLog, "");
 
   const savedPath = process.env.PATH;
-  process.env.PATH = `/usr/local/lib/clor/tests/bin:${savedPath}`;
+  const testBin = process.env.CLOR_TEST_BIN ?? "/usr/local/lib/clor/tests/bin";
+  process.env.PATH = `${testBin}:${savedPath}`;
   process.env.GITHUB_AUTH_PROVIDER_TEST_CLOR_LOG = clorLog;
   process.env.GITHUB_AUTH_PROVIDER_TEST_RESPONSE = response(token, expiry);
   delete process.env.GH_TOKEN;
@@ -223,6 +282,7 @@ async function testClorStubAndNoPersistence() {
 
 async function main() {
   await testDelegation();
+  await testAutomaticConnectionResolutionAndFallback();
   await testSessionsRefreshAndExpiry();
   await testInvalidResponsesFailClosed();
   await testClorStubAndNoPersistence();

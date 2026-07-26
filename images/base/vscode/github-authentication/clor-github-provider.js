@@ -16,16 +16,30 @@ class ClorGitHubAuthenticationProvider {
     this._now = options.now ?? Date.now;
     this._setTimeout = options.setTimeout ?? setTimeout;
     this._clearTimeout = options.clearTimeout ?? clearTimeout;
+    this._delegate = options.delegate;
     this._credential = undefined;
     this._refreshPromise = undefined;
     this._refreshTimer = undefined;
     this._sessions = new Map();
     this._sessionChangeEmitter = new vscode.EventEmitter();
     this.onDidChangeSessions = this._sessionChangeEmitter.event;
+    this._delegateSessionSubscription = this._delegate?.onDidChangeSessions?.(
+      (event) => {
+        this._sessionChangeEmitter.fire(event);
+      },
+    );
   }
 
   async getSessions(scopes = [], options = {}) {
-    const credential = await this._ensureCredential();
+    let credential;
+    try {
+      credential = await this._ensureCredential();
+    } catch (error) {
+      if (this._delegate) {
+        return this._delegate.getSessions(scopes, options);
+      }
+      throw error;
+    }
     const session = this._sessionForScopes(scopes, credential);
 
     if (
@@ -39,7 +53,15 @@ class ClorGitHubAuthenticationProvider {
   }
 
   async createSession(scopes = []) {
-    const credential = await this._ensureCredential();
+    let credential;
+    try {
+      credential = await this._ensureCredential();
+    } catch (error) {
+      if (this._delegate) {
+        return this._delegate.createSession(scopes);
+      }
+      throw error;
+    }
     return this._sessionForScopes(scopes, credential);
   }
 
@@ -55,6 +77,7 @@ class ClorGitHubAuthenticationProvider {
         return;
       }
     }
+    return this._delegate?.removeSession(sessionId);
   }
 
   dispose() {
@@ -62,6 +85,7 @@ class ClorGitHubAuthenticationProvider {
       this._clearTimeout(this._refreshTimer);
       this._refreshTimer = undefined;
     }
+    this._delegateSessionSubscription?.dispose();
     this._credential = undefined;
     this._sessions.clear();
     this._sessionChangeEmitter.dispose();
@@ -69,10 +93,7 @@ class ClorGitHubAuthenticationProvider {
 
   async _ensureCredential() {
     const now = this._now();
-    if (
-      this._credential &&
-      now < this._credential.refreshAt
-    ) {
+    if (this._credential && now < this._credential.refreshAt) {
       return this._credential;
     }
 
@@ -127,7 +148,9 @@ class ClorGitHubAuthenticationProvider {
           try {
             response = JSON.parse(stdout);
           } catch {
-            reject(new Error("Clor GitHub authentication returned invalid JSON"));
+            reject(
+              new Error("Clor GitHub authentication returned invalid JSON"),
+            );
             return;
           }
 
@@ -139,13 +162,17 @@ class ClorGitHubAuthenticationProvider {
             typeof response.account_name !== "string" ||
             response.account_name.length === 0 ||
             typeof response.connection_id !== "string" ||
-            response.connection_id !== this._connectionId ||
+            response.connection_id.length === 0 ||
+            (this._connectionId &&
+              response.connection_id !== this._connectionId) ||
             response.provider !== "github" ||
             typeof response.subject !== "string" ||
             response.subject.length === 0
           ) {
             reject(
-              new Error("Clor GitHub authentication returned invalid credentials"),
+              new Error(
+                "Clor GitHub authentication returned invalid credentials",
+              ),
             );
             return;
           }
@@ -153,7 +180,9 @@ class ClorGitHubAuthenticationProvider {
           const expiry = Date.parse(response.expiry);
           if (!Number.isFinite(expiry) || expiry <= this._now()) {
             reject(
-              new Error("Clor GitHub authentication returned invalid credentials"),
+              new Error(
+                "Clor GitHub authentication returned invalid credentials",
+              ),
             );
             return;
           }
@@ -251,10 +280,13 @@ class ClorGitHubAuthenticationProvider {
             1_000,
             Math.min(delay, this._credential.expiresAt - this._now()),
           );
-    this._refreshTimer = this._setTimeout(() => {
-      this._refreshTimer = undefined;
-      void this._refreshInBackground();
-    }, Math.min(refreshDelay, MAX_TIMER_DELAY_MS));
+    this._refreshTimer = this._setTimeout(
+      () => {
+        this._refreshTimer = undefined;
+        void this._refreshInBackground();
+      },
+      Math.min(refreshDelay, MAX_TIMER_DELAY_MS),
+    );
     this._refreshTimer.unref?.();
   }
 
@@ -296,12 +328,13 @@ function wrapAuthenticationProvider(
   connectionId = process.env.CLOR_GITHUB_CONNECTION_ID,
   options = {},
 ) {
-  if (providerId !== "github" || !connectionId) {
+  if (providerId !== "github") {
     return provider;
   }
   return new ClorGitHubAuthenticationProvider(vscode, {
     ...options,
     connectionId,
+    delegate: provider,
   });
 }
 
