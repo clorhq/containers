@@ -18,6 +18,7 @@ class ClorGitHubAuthenticationProvider {
     this._clearTimeout = options.clearTimeout ?? clearTimeout;
     this._delegate = options.delegate;
     this._credential = undefined;
+    this._fallbackUntil = undefined;
     this._refreshPromise = undefined;
     this._refreshTimer = undefined;
     this._sessions = new Map();
@@ -31,11 +32,20 @@ class ClorGitHubAuthenticationProvider {
   }
 
   async getSessions(scopes = [], options = {}) {
+    if (
+      this._delegate &&
+      this._fallbackUntil !== undefined &&
+      this._now() < this._fallbackUntil
+    ) {
+      return this._delegate.getSessions(scopes, options);
+    }
+
     let credential;
     try {
       credential = await this._ensureCredential();
     } catch (error) {
       if (this._delegate) {
+        this._fallbackUntil = this._now() + REFRESH_RETRY_MS;
         return this._delegate.getSessions(scopes, options);
       }
       throw error;
@@ -53,11 +63,20 @@ class ClorGitHubAuthenticationProvider {
   }
 
   async createSession(scopes = []) {
+    if (
+      this._delegate &&
+      this._fallbackUntil !== undefined &&
+      this._now() < this._fallbackUntil
+    ) {
+      return this._delegate.createSession(scopes);
+    }
+
     let credential;
     try {
       credential = await this._ensureCredential();
     } catch (error) {
       if (this._delegate) {
+        this._fallbackUntil = this._now() + REFRESH_RETRY_MS;
         return this._delegate.createSession(scopes);
       }
       throw error;
@@ -87,6 +106,7 @@ class ClorGitHubAuthenticationProvider {
     }
     this._delegateSessionSubscription?.dispose();
     this._credential = undefined;
+    this._fallbackUntil = undefined;
     this._sessions.clear();
     this._sessionChangeEmitter.dispose();
   }
@@ -207,6 +227,7 @@ class ClorGitHubAuthenticationProvider {
     credential.refreshAt =
       now + Math.max(1_000, remaining - this._refreshSkew(remaining));
     this._credential = credential;
+    this._fallbackUntil = undefined;
 
     for (const [scopeKey, session] of this._sessions) {
       const replacement = this._createSession(session.scopes, credential);

@@ -121,12 +121,13 @@ async function testAutomaticConnectionResolutionAndFallback() {
   assert.deepStrictEqual(delegateCalls, []);
   autoProvider.dispose();
 
+  const fallbackExecCalls = [];
   const fallbackProvider = new ClorGitHubAuthenticationProvider(vscode, {
     connectionId: "",
     delegate,
     execFile: queuedExecFile(
       [new Error("ambiguous connection"), new Error("ambiguous connection")],
-      [],
+      fallbackExecCalls,
     ),
   });
   const options = { silent: true };
@@ -139,6 +140,7 @@ async function testAutomaticConnectionResolutionAndFallback() {
     "delegated-created-session",
   );
   await fallbackProvider.removeSession("delegated-session-id");
+  assert.strictEqual(fallbackExecCalls.length, 1);
   assert.deepStrictEqual(delegateCalls, [
     { method: "getSessions", scopes: ["repo"], options },
     { method: "createSession", scopes: ["workflow"] },
