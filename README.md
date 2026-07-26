@@ -8,7 +8,7 @@ Every downloaded tool, including Clor, is pinned to an explicit version and over
 
 | Image | Toolchain | Includes |
 | --- | --- | --- |
-| `software-development-base` | Node, Go, uv | Clor, Claude, Codex, code-server, Redocly, pnpm, yarn, typescript, tsx, gh, git, ripgrep, fzf, jq, ffmpeg, imagemagick |
+| `software-development-base` | Node, Bun, Deno, Go, Python/uv | Clor, Claude, Codex, code-server, Playwright, gh/gh-dash, lazygit, Yazi, Neovim, API/network clients, quality/security scanners, logs/data/content tools |
 | `software-development-rust` | rustup Rust | clippy, rustfmt, rust-src, rust-analyzer, cargo-nextest, cargo-watch, cargo-edit, cargo-audit |
 | `software-development-go` | Go (from base) | gopls, delve, golangci-lint |
 | `software-development-typescript` | Node, Bun, Deno | eslint, prettier, tailwindcss |
@@ -22,3 +22,9 @@ Each language image is `FROM software-development-base`, so the agents, OS
 tooling, and the base toolchains are present in every image. The language
 images override the managed entrypoint with an unprivileged Bash default,
 making them suitable as custom space images.
+
+The Data and DevOps images are intentionally pull-on-demand variants. Their
+services and terminal helpers only open local interactive interfaces: image
+startup never authenticates to a provider, selects a deployment target, or
+changes external infrastructure. Provider credentials remain runtime state,
+supplied interactively or through Clor secrets.
