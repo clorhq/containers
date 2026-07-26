@@ -126,13 +126,25 @@ RUN GOBIN=/usr/local/bin go install "helm.sh/helm/v4/cmd/helm@v${HELM_VERSION}" 
   && GOBIN=/usr/local/bin go install "sigs.k8s.io/kustomize/kustomize/v5@v${KUSTOMIZE_VERSION}" \
   && GOBIN=/usr/local/bin go install "github.com/derailed/k9s@v${K9S_VERSION}" \
   && GOBIN=/usr/local/bin go install "github.com/stern/stern@v${STERN_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/opentofu/opentofu/cmd/tofu@v${OPENTOFU_VERSION}" \
   && GOBIN=/usr/local/bin go install "github.com/getsops/sops/v3/cmd/sops@v${SOPS_VERSION}" \
   && GOBIN=/usr/local/bin go install "filippo.io/age/cmd/age@v${AGE_VERSION}" \
   && GOBIN=/usr/local/bin go install "filippo.io/age/cmd/age-keygen@v${AGE_VERSION}" \
   && GOBIN=/usr/local/bin go install "github.com/sigstore/cosign/v3/cmd/cosign@v${COSIGN_VERSION}" \
   && GOBIN=/usr/local/bin go install "github.com/google/go-containerregistry/cmd/crane@v${CRANE_VERSION}" \
   && GOBIN=/usr/local/bin go install "oras.land/oras/cmd/oras@v${ORAS_VERSION}"
+
+# OpenTofu's module uses replace directives and is intentionally not
+# installable through `go install module@version`. Use its provider release
+# artifact and independently verify GitHub's digest for the exact asset.
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  tofu_archive="$("/installers/verified-github-asset" opentofu/opentofu "v${OPENTOFU_VERSION}" \
+    "tofu_${OPENTOFU_VERSION}_linux_amd64.zip" \
+    "tofu_${OPENTOFU_VERSION}_linux_arm64.zip")" \
+  && mkdir --parents /tmp/tofu \
+  && unzip -q "${tofu_archive}" -d /tmp/tofu \
+  && install --mode=0755 /tmp/tofu/tofu /usr/local/bin/tofu \
+  && rm --recursive --force /tmp/tofu
 
 ARG PULUMI_VERSION="3.254.0"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
