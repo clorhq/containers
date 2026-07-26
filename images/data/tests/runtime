@@ -1,0 +1,49 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+IMAGE="${1:?usage: runtime IMAGE}"
+CONTAINER="clor-data-test-${RANDOM}-$$"
+REPOSITORY="$(mktemp --directory)"
+cleanup() {
+    docker rm --force "${CONTAINER}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+chmod 0777 "${REPOSITORY}"
+
+docker run --detach --name "${CONTAINER}" \
+    --volume "${REPOSITORY}:/space/repository" \
+    --publish 127.0.0.1::8888 \
+    --publish 127.0.0.1::2718 \
+    "${IMAGE}" \
+    bash --login -c '
+        cd /space/repository
+        jupyter-lab --no-browser --ip=0.0.0.0 --port=8888 \
+            --ServerApp.root_dir=. --ServerApp.token= \
+            --ServerApp.password= --IdentityProvider.token= &
+        marimo edit --no-token --headless --host 0.0.0.0 --port 2718 &
+        wait
+    ' >/dev/null
+
+jupyter_port="$(docker port "${CONTAINER}" 8888/tcp | sed -n '1s/.*://p')"
+marimo_port="$(docker port "${CONTAINER}" 2718/tcp | sed -n '1s/.*://p')"
+[[ -n "${jupyter_port}" && -n "${marimo_port}" ]]
+
+for _ in $(seq 1 60); do
+    jupyter_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+        "http://127.0.0.1:${jupyter_port}/api" || true)"
+    marimo_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+        "http://127.0.0.1:${marimo_port}/" || true)"
+    if [[ "${jupyter_status}" = 200 && "${marimo_status}" = 200 ]]; then
+        break
+    fi
+    sleep 1
+done
+[[ "${jupyter_status}" = 200 ]]
+[[ "${marimo_status}" = 200 ]]
+
+[[ "$(docker exec --user user --workdir /space/repository "${CONTAINER}" pwd)" = /space/repository ]]
+docker exec --user user "${CONTAINER}" \
+    /home/user/.local/share/clor/data-venv/bin/python -c \
+    'import duckdb, ipykernel, marimo, pandas, polars, pyarrow'

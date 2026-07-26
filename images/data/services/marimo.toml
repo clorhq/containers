@@ -1,0 +1,15 @@
+command = [
+    "/home/user/.local/bin/marimo",
+    "edit",
+    "--no-token",
+    "--headless",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "2718",
+]
+readiness_port = 2718
+restart = "always"
+
+[environment]
+MARIMO_NO_ANALYTICS = "1"

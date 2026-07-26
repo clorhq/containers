@@ -1,0 +1,110 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+HELPER="${CLOR_API_WORKBENCH_HELPER:-/usr/local/bin/clor-api-workbench}"
+TEST_ROOT="$(mktemp --directory)"
+trap 'rm --recursive --force "${TEST_ROOT}"' EXIT
+STUB_BIN="${TEST_ROOT}/bin"
+mkdir --parents "${STUB_BIN}"
+
+cat >"${STUB_BIN}/redocly" <<'EOF'
+#!/bin/bash
+spec="$2"
+printf '%s\n' "${spec}" >>"${CLOR_API_TEST_LOG}"
+output=
+while (($#)); do
+    if [[ "$1" = --output ]]; then
+        output="$2"
+        break
+    fi
+    shift
+done
+printf '<html>spec=%s</html>\n' "${spec}" >"${output}"
+EOF
+cat >"${STUB_BIN}/python3" <<'EOF'
+#!/bin/bash
+directory=
+while (($#)); do
+    if [[ "$1" = --directory ]]; then
+        directory="$2"
+        break
+    fi
+    shift
+done
+printf '%s\n' "${directory}" >"${CLOR_API_OUTPUT_DIRECTORY}"
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+EOF
+cat >"${STUB_BIN}/watchexec" <<'EOF'
+#!/bin/bash
+trap 'exit 0' TERM INT
+while :; do
+    if [[ -f "${CLOR_API_TRIGGER}" ]]; then
+        rm --force "${CLOR_API_TRIGGER}"
+        bash -c render
+    fi
+    sleep 0.05
+done
+EOF
+cat >"${STUB_BIN}/git" <<'EOF'
+#!/bin/bash
+printf 'git %s\n' "$*" >>"${CLOR_API_TEST_LOG}"
+EOF
+chmod 0755 "${STUB_BIN}"/*
+
+repository="${TEST_ROOT}/repository"
+mkdir --parents "${repository}/api" "${repository}/docs"
+printf 'root\n' >"${repository}/openapi.json"
+printf 'api\n' >"${repository}/api/openapi.yaml"
+printf 'docs\n' >"${repository}/docs/swagger.yml"
+log="${TEST_ROOT}/commands.log"
+output_pointer="${TEST_ROOT}/output-directory"
+trigger="${TEST_ROOT}/trigger"
+(
+    cd "${repository}"
+    CLOR_API_TEST_LOG="${log}" \
+        CLOR_API_OUTPUT_DIRECTORY="${output_pointer}" \
+        CLOR_API_TRIGGER="${trigger}" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" serve
+) &
+helper_pid=$!
+
+for _ in $(seq 1 100); do
+    [[ -s "${output_pointer}" ]] && break
+    sleep 0.05
+done
+output_directory="$(cat "${output_pointer}")"
+grep --quiet --fixed-strings './openapi.json' "${log}"
+grep --quiet --fixed-strings 'spec=./openapi.json' "${output_directory}/index.html"
+
+rm "${repository}/openapi.json" "${repository}/api/openapi.yaml" \
+    "${repository}/docs/swagger.yml"
+: >"${trigger}"
+for _ in $(seq 1 100); do
+    grep --quiet 'API Workbench is ready' "${output_directory}/index.html" && break
+    sleep 0.05
+done
+grep --quiet 'API Workbench is ready' "${output_directory}/index.html"
+
+printf 'yaml\n' >"${repository}/docs/openapi.yaml"
+: >"${trigger}"
+for _ in $(seq 1 100); do
+    grep --quiet 'spec=docs/openapi.yaml' "${output_directory}/index.html" && break
+    sleep 0.05
+done
+grep --quiet 'spec=docs/openapi.yaml' "${output_directory}/index.html"
+
+kill -TERM "${helper_pid}"
+wait "${helper_pid}" || true
+[[ ! -e "${output_directory}" ]]
+
+(
+    cd "${repository}"
+    CLOR_API_TEST_LOG="${log}" PATH="${STUB_BIN}:${PATH}" \
+        "${HELPER}" archive
+)
+grep --quiet --fixed-strings 'git diff --check' "${log}"
+
+printf 'clor-api-workbench test: ok\n'

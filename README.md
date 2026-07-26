@@ -15,6 +15,8 @@ Every downloaded tool, including Clor, is pinned to an explicit version and over
 | `software-development-python` | uv-managed CPython | ruff, mypy, pyright, poetry, ipython |
 | `software-development-zig` | Zig | zls |
 | `software-development-ruby` | Ruby | bundler, rubocop, solargraph |
+| `software-development-data` | Python image | JupyterLab, Marimo, Harlequin, pandas, Polars, PyArrow, DuckDB |
+| `software-development-devops` | Base image | Web/cloud deployment CLIs, Kubernetes, IaC, signing, and registry tools |
 
 Each language image is `FROM software-development-base`, so the agents, OS
 tooling, and the base toolchains are present in every image. The language

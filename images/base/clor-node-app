@@ -1,0 +1,116 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+NEXT_CREATE_VERSION="16.2.12"
+VITE_CREATE_VERSION="8.1.5"
+
+fail() {
+    printf 'clor-node-app: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    fail 'usage: clor-node-app setup|serve|archive next|vite'
+}
+
+[[ $# -eq 2 ]] || usage
+MODE="$1"
+KIND="$2"
+[[ "${MODE}" = setup || "${MODE}" = serve || "${MODE}" = archive ]] || usage
+[[ "${KIND}" = next || "${KIND}" = vite ]] || usage
+
+manager_for_repository() {
+    local managers=()
+    [[ -f bun.lock || -f bun.lockb ]] && managers+=(bun)
+    [[ -f pnpm-lock.yaml ]] && managers+=(pnpm)
+    [[ -f yarn.lock ]] && managers+=(yarn)
+    [[ -f package-lock.json || -f npm-shrinkwrap.json ]] && managers+=(npm)
+    if ((${#managers[@]} > 1)); then
+        fail "multiple package-manager lockfiles found (${managers[*]})"
+    fi
+    if ((${#managers[@]} == 1)); then
+        printf '%s\n' "${managers[0]}"
+    else
+        printf 'pnpm\n'
+    fi
+}
+
+repository_is_empty() {
+    local entry
+    while IFS= read -r -d '' entry; do
+        [[ "${entry}" = ./.git || "${entry}" = ./.git/* ]] && continue
+        return 1
+    done < <(find . -mindepth 1 -print0)
+    return 0
+}
+
+install_dependencies() {
+    case "$1" in
+        bun) bun install --frozen-lockfile ;;
+        pnpm) pnpm install --frozen-lockfile ;;
+        yarn) yarn install --immutable ;;
+        npm) npm ci ;;
+    esac
+}
+
+run_script() {
+    local manager="$1"
+    local script="$2"
+    shift 2
+    case "${manager}" in
+        bun) bun run "${script}" "$@" ;;
+        pnpm) pnpm run "${script}" "$@" ;;
+        yarn) yarn run "${script}" "$@" ;;
+        npm) npm run "${script}" -- "$@" ;;
+    esac
+}
+
+scaffold() {
+    if ! repository_is_empty; then
+        fail 'repository has no package.json and is not empty'
+    fi
+    case "${KIND}" in
+        next)
+            pnpm dlx "create-next-app@${NEXT_CREATE_VERSION}" . \
+                --typescript --eslint --tailwind --app --src-dir \
+                --use-pnpm --import-alias '@/*' --yes --disable-git
+            ;;
+        vite)
+            pnpm dlx "create-vite@${VITE_CREATE_VERSION}" . \
+                --template react-ts
+            pnpm install
+            ;;
+    esac
+}
+
+MANAGER="$(manager_for_repository)"
+case "${MODE}" in
+    setup)
+        if [[ ! -f package.json ]]; then
+            scaffold
+        else
+            install_dependencies "${MANAGER}"
+        fi
+        ;;
+    serve)
+        [[ -f package.json ]] || fail 'package.json not found; run setup first'
+        case "${KIND}" in
+            next) run_script "${MANAGER}" dev --hostname 0.0.0.0 --port 3000 ;;
+            vite) run_script "${MANAGER}" dev --host 0.0.0.0 --port 5173 ;;
+        esac
+        ;;
+    archive)
+        build_status=0
+        if [[ -f package.json ]] &&
+            jq --exit-status '.scripts.build | type == "string" and length > 0' \
+                package.json >/dev/null 2>&1; then
+            run_script "${MANAGER}" build || build_status=$?
+        fi
+        diff_status=0
+        git diff --check || diff_status=$?
+        ((build_status == 0)) || exit "${build_status}"
+        exit "${diff_status}"
+        ;;
+esac

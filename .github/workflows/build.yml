@@ -50,6 +50,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: CLOR_BUILD_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=image,name=ghcr.io/clorhq/software-development-base,push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=base-${{ matrix.arch }}
       - name: Export digest
@@ -90,7 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [rust, python, zig, ruby, desktop]
+        image: [rust, python, zig, ruby, desktop, devops]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -119,6 +121,17 @@ jobs:
           build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=cacheonly
           cache-from: type=gha,scope=desktop-${{ matrix.arch }}
+      - name: Test the DevOps image
+        if: ${{ matrix.image == 'devops' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/devops/Dockerfile
+          target: test
+          platforms: ${{ matrix.platform }}
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=devops-${{ matrix.arch }}
       - id: build
         uses: docker/build-push-action@v7
         with:
@@ -127,6 +140,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=image,name=ghcr.io/clorhq/software-development-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
       - name: Test the desktop runtime
@@ -153,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [rust, python, zig, ruby, desktop]
+        image: [rust, python, zig, ruby, desktop, devops]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -172,3 +187,88 @@ jobs:
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-${{ matrix.image }}:latest \
             $(printf 'ghcr.io/clorhq/software-development-${{ matrix.image }}@sha256:%s ' *)
+          docker buildx imagetools inspect \
+            ghcr.io/clorhq/software-development-${{ matrix.image }}:latest
+  data:
+    needs: merge-variants
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test the Data image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/data/Dockerfile
+          target: test
+          platforms: ${{ matrix.platform }}
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-python:latest
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=data-${{ matrix.arch }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/data/Dockerfile
+          target: production
+          platforms: ${{ matrix.platform }}
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-python:latest
+          outputs: type=image,name=ghcr.io/clorhq/software-development-data,push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=data-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=data-${{ matrix.arch }}
+      - name: Test Data service readiness
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          IMAGE="ghcr.io/clorhq/software-development-data@${IMAGE_DIGEST}"
+          bash images/data/tests/runtime "${IMAGE}"
+      - name: Export digest
+        run: |
+          mkdir --parents /tmp/digests
+          DIGEST="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-data-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+  merge-data:
+    needs: data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-data-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create the multi-arch tag and record its digest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/clorhq/software-development-data:latest \
+            $(printf 'ghcr.io/clorhq/software-development-data@sha256:%s ' *)
+          docker buildx imagetools inspect \
+            ghcr.io/clorhq/software-development-data:latest

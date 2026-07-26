@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install --yes \
   unzip \
   zip \
   git \
+  git-lfs \
   gnupg \
   python3 \
   python3-pip \
@@ -25,6 +26,9 @@ RUN apt-get update && apt-get install --yes \
   python3-wheel \
   pipx \
   make \
+  cmake \
+  ninja-build \
+  pkg-config \
   ripgrep \
   g++ \
   build-essential \
@@ -93,7 +97,44 @@ RUN apt-get update && apt-get install --yes \
   firefox-esr \
   chromium \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then apt-get install --yes ltrace; fi \
+  && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
+  && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
+
+# Install complete upstream distributions for tools where Debian Bookworm is
+# substantially behind. The shared installer verifies GitHub's published
+# digest for the exact architecture-specific release asset.
+ARG NEOVIM_VERSION="0.12.4"
+ARG PANDOC_VERSION="3.10.1"
+ARG LNAV_VERSION="0.14.0"
+ARG DUCKDB_VERSION="1.5.5"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  nvim_archive="$("/installers/verified-github-asset" neovim/neovim "v${NEOVIM_VERSION}" \
+    nvim-linux-x86_64.tar.gz nvim-linux-arm64.tar.gz)" \
+  && mkdir --parents "/opt/neovim/${NEOVIM_VERSION}" \
+  && tar --extract --gzip --strip-components=1 \
+    --directory="/opt/neovim/${NEOVIM_VERSION}" --file="${nvim_archive}" \
+  && ln --symbolic "/opt/neovim/${NEOVIM_VERSION}/bin/nvim" /usr/local/bin/nvim \
+  && pandoc_archive="$("/installers/verified-github-asset" jgm/pandoc "${PANDOC_VERSION}" \
+    "pandoc-${PANDOC_VERSION}-linux-amd64.tar.gz" \
+    "pandoc-${PANDOC_VERSION}-linux-arm64.tar.gz")" \
+  && mkdir --parents "/opt/pandoc/${PANDOC_VERSION}" \
+  && tar --extract --gzip --strip-components=1 \
+    --directory="/opt/pandoc/${PANDOC_VERSION}" --file="${pandoc_archive}" \
+  && for tool in "/opt/pandoc/${PANDOC_VERSION}/bin/"*; do \
+    ln --symbolic "${tool}" "/usr/local/bin/$(basename "${tool}")"; \
+  done \
+  && lnav_archive="$("/installers/verified-github-asset" tstack/lnav "v${LNAV_VERSION}" \
+    "lnav-${LNAV_VERSION}-linux-musl-x86_64.zip" \
+    "lnav-${LNAV_VERSION}-linux-musl-arm64.zip")" \
+  && unzip -q "${lnav_archive}" -d /tmp/lnav \
+  && install --mode=0755 "/tmp/lnav/lnav-${LNAV_VERSION}/lnav" /usr/local/bin/lnav \
+  && duckdb_archive="$("/installers/verified-github-asset" duckdb/duckdb "v${DUCKDB_VERSION}" \
+    duckdb_cli-linux-amd64.zip duckdb_cli-linux-arm64.zip)" \
+  && unzip -q "${duckdb_archive}" -d /tmp/duckdb \
+  && install --mode=0755 /tmp/duckdb/duckdb /usr/local/bin/duckdb \
+  && rm --recursive --force /tmp/lnav /tmp/duckdb
 
 # Installer downloads use a shared BuildKit cache.
 
@@ -161,6 +202,55 @@ ARG GLOW_VERSION="2.1.2"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/glow "${GLOW_VERSION}"
+
+# Install pinned terminal navigation, editing, automation, networking, quality,
+# data, and content tools. cargo-binstall obtains the projects' upstream
+# prebuilt releases and verifies their checksums; --no-confirm keeps image
+# builds noninteractive and exact package versions prevent silent drift.
+ARG CARGO_BINSTALL_VERSION="1.21.1"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/cargo-binstall "${CARGO_BINSTALL_VERSION}"
+
+ARG YAZI_VERSION="26.5.6"
+ARG DELTA_VERSION="0.19.2"
+ARG DIFFTASTIC_VERSION="0.69.0"
+ARG EZA_VERSION="0.23.5"
+ARG ZOXIDE_VERSION="0.10.0"
+ARG JUST_VERSION="1.57.0"
+ARG WATCHEXEC_VERSION="2.5.1"
+ARG MISE_VERSION="2026.7.13"
+ARG AST_GREP_VERSION="0.45.0"
+ARG XH_VERSION="0.26.1"
+ARG HURL_VERSION="8.0.1"
+ARG OHA_VERSION="1.15.0"
+ARG WEBSOCAT_VERSION="1.14.1"
+ARG TYPOS_VERSION="1.48.0"
+ARG LYCHEE_VERSION="0.24.2"
+ARG TYPST_VERSION="0.15.1"
+ARG PRESENTERM_VERSION="0.16.1"
+RUN cargo-binstall --no-confirm --force \
+  "yazi-fm@${YAZI_VERSION}" \
+  "yazi-cli@${YAZI_VERSION}" \
+  "git-delta@${DELTA_VERSION}" \
+  "difftastic@${DIFFTASTIC_VERSION}" \
+  "eza@${EZA_VERSION}" \
+  "zoxide@${ZOXIDE_VERSION}" \
+  "just@${JUST_VERSION}" \
+  "watchexec-cli@${WATCHEXEC_VERSION}" \
+  "mise@${MISE_VERSION}" \
+  "ast-grep@${AST_GREP_VERSION}" \
+  "xh@${XH_VERSION}" \
+  "hurl@${HURL_VERSION}" \
+  "oha@${OHA_VERSION}" \
+  "websocat@${WEBSOCAT_VERSION}" \
+  "typos-cli@${TYPOS_VERSION}" \
+  "lychee@${LYCHEE_VERSION}" \
+  "typst-cli@${TYPST_VERSION}" \
+  "presenterm@${PRESENTERM_VERSION}" \
+  && if ! command -v ast-grep >/dev/null 2>&1; then \
+    ln --symbolic "$(command -v sg)" /usr/local/bin/ast-grep; \
+  fi
 
 # Install the browser-based VS Code server.
 # Version source: https://github.com/coder/code-server/releases/latest
@@ -230,6 +320,27 @@ RUN go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
 ARG DELVE_VERSION="1.7.3"
 RUN go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}"
 
+# Install pinned Go-native developer tools into the system path. gh-dash is
+# kept behind its authentication wrapper, just as the real gh binary is.
+ARG GH_DASH_VERSION="4.25.2"
+ARG YQ_VERSION="4.53.3"
+ARG GRPCURL_VERSION="1.9.3"
+ARG GRPCUI_VERSION="1.5.2"
+ARG ACTIONLINT_VERSION="1.7.12"
+ARG GITLEAKS_VERSION="8.30.1"
+ARG OSV_SCANNER_VERSION="2.4.0"
+ARG VALE_VERSION="3.15.2"
+ARG DIRENV_VERSION="2.37.1"
+RUN go install "github.com/dlvhdr/gh-dash/v4@v${GH_DASH_VERSION}" \
+  && go install "github.com/mikefarah/yq/v4@v${YQ_VERSION}" \
+  && go install "github.com/fullstorydev/grpcurl/cmd/grpcurl@v${GRPCURL_VERSION}" \
+  && go install "github.com/fullstorydev/grpcui/cmd/grpcui@v${GRPCUI_VERSION}" \
+  && go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}" \
+  && go install "github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}" \
+  && go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@v${OSV_SCANNER_VERSION}" \
+  && go install "github.com/errata-ai/vale/v3/cmd/vale@v${VALE_VERSION}" \
+  && go install "github.com/direnv/direnv/v2@v${DIRENV_VERSION}"
+
 # Configure per-user npm globals.
 RUN mkdir --parents /home/user/.npm-global \
   && npm config set prefix /home/user/.npm-global
@@ -237,6 +348,11 @@ RUN mkdir --parents /home/user/.npm-global \
 # Install Redocly CLI.
 ARG REDOCLY_VERSION="2.30.5"
 RUN npm install --global "@redocly/cli@${REDOCLY_VERSION}"
+
+# Posting is isolated from project Python environments while its shim stays on
+# the ordinary space PATH.
+ARG POSTING_VERSION="2.10.0"
+RUN uv tool install "posting==${POSTING_VERSION}"
 
 # Install pnpm and Yarn.
 ARG PNPM_VERSION="11.14.0"
@@ -286,6 +402,10 @@ ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
 # Adapt only this exact code-server release's built-in GitHub provider. The
 # original provider remains responsible for normal and GitHub Enterprise auth.
+RUN install --mode=0755 /home/user/go/bin/gh-dash /usr/local/lib/clor/gh-dash \
+  && for tool in yq grpcurl grpcui actionlint gitleaks osv-scanner vale direnv; do \
+    install --mode=0755 "/home/user/go/bin/${tool}" "/usr/local/bin/${tool}"; \
+  done
 RUN test "${VSCODE_VERSION}" = "4.129.0" \
   && printf '%s  %s\n' \
     26035111b16f05f6bdaefe51f200312b12b104d0f9e60ec94c536990c5c8ac0e \
@@ -304,6 +424,9 @@ RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode
   && test "$(jq --raw-output .main "${github_auth_package}")" = \
     "./clor-adapter.js"
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
+COPY --chmod=0755 images/base/gh-dash /usr/local/bin/gh-dash
+COPY --chmod=0755 images/base/clor-node-app /usr/local/bin/clor-node-app
+COPY --chmod=0755 images/base/clor-api-workbench /usr/local/bin/clor-api-workbench
 COPY --chmod=0755 images/base/remotion-space /usr/local/bin/remotion-space
 COPY --chmod=0755 images/base/start /usr/local/lib/clor/start
 COPY --chmod=0644 images/base/services/code-server.toml /etc/clor/services/code-server.toml
@@ -361,11 +484,43 @@ RUN test "${HOME}" = /root \
     deno \
     go \
     golangci-lint \
+    actionlint \
+    ast-grep \
+    bat \
+    delta \
+    difft \
+    duckdb \
+    eza \
+    fd \
+    gh-dash \
+    gitleaks \
+    grpcui \
+    grpcurl \
+    hurl \
+    just \
+    lychee \
+    mise \
+    nvim \
+    oha \
+    osv-scanner \
+    posting \
+    pandoc \
+    presenterm \
     remotion-space \
     shellcheck \
     shfmt \
     tailwindcss \
+    typst \
+    typos \
+    vale \
+    watchexec \
+    websocat \
+    xh \
+    ya \
+    yazi \
+    yq \
     xvfb-run \
+    zoxide \
     >/dev/null \
   && gosu user env \
     HOME=/home/user \
@@ -383,10 +538,16 @@ RUN test "${HOME}" = /root \
         /home/user/.config/lazygit/config.yml' \
   && bash -n \
     /usr/local/bin/chromium \
+    /usr/local/bin/clor-api-workbench \
+    /usr/local/bin/clor-node-app \
     /usr/local/bin/gh \
+    /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
+    /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/clor-api-workbench \
+    /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
@@ -399,10 +560,16 @@ RUN test "${HOME}" = /root \
   && node --check /usr/local/lib/clor/tests/vscode-auth-probe/extension.js \
   && shellcheck \
     /usr/local/bin/chromium \
+    /usr/local/bin/clor-api-workbench \
+    /usr/local/bin/clor-node-app \
     /usr/local/bin/gh \
+    /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
+    /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/clor-api-workbench \
+    /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
@@ -414,10 +581,16 @@ RUN test "${HOME}" = /root \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
     /usr/local/bin/chromium \
+    /usr/local/bin/clor-api-workbench \
+    /usr/local/bin/clor-node-app \
     /usr/local/bin/gh \
+    /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
+    /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/clor-api-workbench \
+    /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
@@ -428,7 +601,10 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
     /etc/profile.d/clor-space-tools.sh \
   && node /usr/local/lib/clor/tests/github-authentication.js \
+  && /usr/local/lib/clor/tests/clor-node-app \
+  && /usr/local/lib/clor/tests/clor-api-workbench \
   && /usr/local/lib/clor/tests/gh \
+  && /usr/local/lib/clor/tests/gh-dash \
   && /usr/local/lib/clor/tests/remotion-space \
   && /usr/local/lib/clor/tests/start
 RUN gosu user env \

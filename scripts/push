@@ -27,7 +27,7 @@ docker buildx build --push \
     ${EXTRA_BUILD_ARGS} \
     .
 
-for VARIANT in rust python zig ruby desktop; do
+for VARIANT in rust python zig ruby desktop devops; do
     IMAGE="${REGISTRY}/software-development-${VARIANT}"
     echo "==> building and pushing ${IMAGE}"
     docker buildx build --push \
@@ -39,3 +39,14 @@ for VARIANT in rust python zig ruby desktop; do
         ${EXTRA_BUILD_ARGS} \
         .
 done
+
+DATA_IMAGE="${REGISTRY}/software-development-data"
+echo "==> building and pushing ${DATA_IMAGE}"
+docker buildx build --push \
+    --platform "${PLATFORMS}" \
+    --tag "${DATA_IMAGE}:latest" \
+    --tag "${DATA_IMAGE}:${GIT_SHA}" \
+    --file images/data/Dockerfile \
+    --build-arg "BASE_IMAGE=${REGISTRY}/software-development-python:latest" \
+    ${EXTRA_BUILD_ARGS} \
+    .

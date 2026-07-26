@@ -1,0 +1,50 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64) TARGET="x86_64-unknown-linux-musl" ;;
+    arm64) TARGET="aarch64-unknown-linux-musl" ;;
+    *)
+        printf 'unsupported architecture: %s\n' "$(dpkg --print-architecture)" >&2
+        exit 1
+        ;;
+esac
+
+ASSET="cargo-binstall-${TARGET}.tgz"
+ARCHIVE="/downloads/${ASSET}-${VERSION}"
+RELEASE_URL="https://github.com/cargo-bins/cargo-binstall/releases/download/v${VERSION}"
+METADATA_URL="https://api.github.com/repos/cargo-bins/cargo-binstall/releases/tags/v${VERSION}"
+
+EXPECTED_DIGEST="$(
+    curl --fail --silent --show-error --location "${METADATA_URL}" |
+        jq --exit-status --raw-output --arg asset "${ASSET}" '
+            .assets[]
+            | select(.name == $asset)
+            | .digest
+            | select(startswith("sha256:"))
+            | ltrimstr("sha256:")
+        '
+)"
+if [[ "${#EXPECTED_DIGEST}" -ne 64 || "${EXPECTED_DIGEST}" == *[!0-9a-f]* ]]; then
+    printf 'invalid SHA-256 digest for %s\n' "${ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${RELEASE_URL}/${ASSET}"
+fi
+ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    printf 'cargo-binstall archive digest mismatch\n' >&2
+    exit 1
+fi
+
+EXTRACT_DIR="$(mktemp --directory)"
+tar --extract --gzip --directory="${EXTRACT_DIR}" --file="${ARCHIVE}"
+install --mode=0755 "${EXTRACT_DIR}/cargo-binstall" /usr/local/bin/cargo-binstall
+rm --recursive --force "${EXTRACT_DIR}"

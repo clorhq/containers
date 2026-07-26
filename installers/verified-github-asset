@@ -1,0 +1,48 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+REPOSITORY="$1"
+TAG="$2"
+AMD64_ASSET="$3"
+ARM64_ASSET="$4"
+
+case "$(dpkg --print-architecture)" in
+    amd64) ASSET="${AMD64_ASSET}" ;;
+    arm64) ASSET="${ARM64_ASSET}" ;;
+    *)
+        printf 'unsupported architecture: %s\n' "$(dpkg --print-architecture)" >&2
+        exit 1
+        ;;
+esac
+
+ARCHIVE="/downloads/${REPOSITORY//\//-}-${TAG}-${ASSET}"
+METADATA_URL="https://api.github.com/repos/${REPOSITORY}/releases/tags/${TAG}"
+EXPECTED_DIGEST="$(
+    curl --fail --silent --show-error --location "${METADATA_URL}" |
+        jq --exit-status --raw-output --arg asset "${ASSET}" '
+            .assets[]
+            | select(.name == $asset)
+            | .digest
+            | select(startswith("sha256:"))
+            | ltrimstr("sha256:")
+        '
+)"
+if [[ "${#EXPECTED_DIGEST}" -ne 64 || "${EXPECTED_DIGEST}" == *[!0-9a-f]* ]]; then
+    printf 'invalid SHA-256 digest for %s/%s %s\n' \
+        "${REPOSITORY}" "${TAG}" "${ASSET}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" \
+        "https://github.com/${REPOSITORY}/releases/download/${TAG}/${ASSET}"
+fi
+ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+if [[ "${ACTUAL_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+    printf 'GitHub release asset digest mismatch for %s\n' "${ASSET}" >&2
+    exit 1
+fi
+printf '%s\n' "${ARCHIVE}"

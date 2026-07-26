@@ -1,0 +1,23 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+TOOL="$(basename "$0")"
+directory="${PWD}"
+while :; do
+    candidate="${directory}/node_modules/.bin/${TOOL}"
+    if [[ -x "${candidate}" ]]; then
+        exec "${candidate}" "$@"
+    fi
+    [[ "${directory}" = / ]] && break
+    directory="$(dirname "${directory}")"
+done
+
+fallback="/opt/clor/deploy-node/bin/${TOOL}"
+if [[ ! -x "${fallback}" ]]; then
+    printf '%s: neither a repository-local nor image fallback executable exists\n' \
+        "${TOOL}" >&2
+    exit 127
+fi
+exec "${fallback}" "$@"

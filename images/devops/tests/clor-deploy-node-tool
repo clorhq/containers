@@ -1,0 +1,30 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+HELPER="${CLOR_DEPLOY_NODE_HELPER:-/usr/local/lib/clor/clor-deploy-node-tool}"
+TEST_ROOT="$(mktemp --directory)"
+trap 'rm --recursive --force "${TEST_ROOT}"' EXIT
+mkdir --parents "${TEST_ROOT}/repo/subdir" \
+    "${TEST_ROOT}/repo/node_modules/.bin" "${TEST_ROOT}/fallback/bin"
+
+cat >"${TEST_ROOT}/repo/node_modules/.bin/wrangler" <<'EOF'
+#!/bin/bash
+printf 'local %s\n' "$*"
+EOF
+cat >"${TEST_ROOT}/fallback/bin/wrangler" <<'EOF'
+#!/bin/bash
+printf 'fallback %s\n' "$*"
+EOF
+chmod 0755 "${TEST_ROOT}/repo/node_modules/.bin/wrangler" \
+    "${TEST_ROOT}/fallback/bin/wrangler"
+
+sed "s#/opt/clor/deploy-node#${TEST_ROOT}/fallback#" "${HELPER}" \
+    >"${TEST_ROOT}/wrangler"
+chmod 0755 "${TEST_ROOT}/wrangler"
+output="$(cd "${TEST_ROOT}/repo/subdir" && "${TEST_ROOT}/wrangler" --version)"
+[[ "${output}" = 'local --version' ]]
+rm "${TEST_ROOT}/repo/node_modules/.bin/wrangler"
+output="$(cd "${TEST_ROOT}/repo/subdir" && "${TEST_ROOT}/wrangler" --version)"
+[[ "${output}" = 'fallback --version' ]]

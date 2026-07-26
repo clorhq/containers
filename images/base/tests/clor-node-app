@@ -1,0 +1,127 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+HELPER="${CLOR_NODE_APP_HELPER:-/usr/local/bin/clor-node-app}"
+TEST_ROOT="$(mktemp --directory)"
+trap 'rm --recursive --force "${TEST_ROOT}"' EXIT
+STUB_BIN="${TEST_ROOT}/bin"
+mkdir --parents "${STUB_BIN}"
+
+for manager in bun pnpm yarn npm; do
+    cat >"${STUB_BIN}/${manager}" <<'EOF'
+#!/bin/bash
+printf '%s %s\n' "$(basename "$0")" "$*" >>"${CLOR_NODE_TEST_LOG}"
+if [[ "$(basename "$0")" = pnpm && "${1:-}" = dlx ]]; then
+    printf '{"scripts":{"dev":"dev","build":"build"}}\n' >package.json
+    printf 'lockfileVersion: 9\n' >pnpm-lock.yaml
+fi
+if [[ "${CLOR_NODE_FAIL_BUILD:-false}" = true && "$*" = *"run build"* ]]; then
+    exit 42
+fi
+EOF
+    chmod 0755 "${STUB_BIN}/${manager}"
+done
+cat >"${STUB_BIN}/git" <<'EOF'
+#!/bin/bash
+printf 'git %s\n' "$*" >>"${CLOR_NODE_TEST_LOG}"
+EOF
+chmod 0755 "${STUB_BIN}/git"
+
+run_case() {
+    local name="$1"
+    shift
+    local directory="${TEST_ROOT}/${name}"
+    mkdir --parents "${directory}"
+    (
+        cd "${directory}"
+        CLOR_NODE_TEST_LOG="${directory}/commands.log" \
+            PATH="${STUB_BIN}:${PATH}" "${HELPER}" "$@"
+    )
+}
+
+run_case empty-next setup next
+grep --quiet --fixed-strings \
+    'pnpm dlx create-next-app@16.2.12 . --typescript --eslint --tailwind --app --src-dir --use-pnpm --import-alias @/* --yes --disable-git' \
+    "${TEST_ROOT}/empty-next/commands.log"
+
+run_case empty-vite setup vite
+grep --quiet --fixed-strings \
+    'pnpm dlx create-vite@8.1.5 . --template react-ts' \
+    "${TEST_ROOT}/empty-vite/commands.log"
+grep --quiet --fixed-strings 'pnpm install' "${TEST_ROOT}/empty-vite/commands.log"
+
+for fixture in bun.lock pnpm-lock.yaml yarn.lock package-lock.json; do
+    name="${fixture%%.*}"
+    directory="${TEST_ROOT}/lock-${name}"
+    mkdir --parents "${directory}"
+    printf '{"scripts":{"dev":"dev"}}\n' >"${directory}/package.json"
+    : >"${directory}/${fixture}"
+    (
+        cd "${directory}"
+        CLOR_NODE_TEST_LOG="${directory}/commands.log" \
+            PATH="${STUB_BIN}:${PATH}" "${HELPER}" setup next
+    )
+done
+grep --quiet '^bun install --frozen-lockfile$' "${TEST_ROOT}/lock-bun/commands.log"
+grep --quiet '^pnpm install --frozen-lockfile$' "${TEST_ROOT}/lock-pnpm-lock/commands.log"
+grep --quiet '^yarn install --immutable$' "${TEST_ROOT}/lock-yarn/commands.log"
+grep --quiet '^npm ci$' "${TEST_ROOT}/lock-package-lock/commands.log"
+
+conflict="${TEST_ROOT}/conflict"
+mkdir --parents "${conflict}"
+printf '{}\n' >"${conflict}/package.json"
+: >"${conflict}/yarn.lock"
+: >"${conflict}/package-lock.json"
+if (
+    cd "${conflict}"
+    CLOR_NODE_TEST_LOG="${conflict}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" setup next
+); then
+    printf 'clor-node-app test: conflicting locks were accepted\n' >&2
+    exit 1
+fi
+
+serve="${TEST_ROOT}/serve"
+mkdir --parents "${serve}"
+printf '{"scripts":{"dev":"dev"}}\n' >"${serve}/package.json"
+: >"${serve}/pnpm-lock.yaml"
+(
+    cd "${serve}"
+    CLOR_NODE_TEST_LOG="${serve}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" serve next
+    CLOR_NODE_TEST_LOG="${serve}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" serve vite
+)
+grep --quiet --fixed-strings \
+    'pnpm run dev --hostname 0.0.0.0 --port 3000' "${serve}/commands.log"
+grep --quiet --fixed-strings \
+    'pnpm run dev --host 0.0.0.0 --port 5173' "${serve}/commands.log"
+
+archive="${TEST_ROOT}/archive"
+mkdir --parents "${archive}"
+printf '{"scripts":{"test":"test"}}\n' >"${archive}/package.json"
+(
+    cd "${archive}"
+    CLOR_NODE_TEST_LOG="${archive}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" archive next
+)
+grep --quiet --fixed-strings 'git diff --check' "${archive}/commands.log"
+if grep --quiet 'run build' "${archive}/commands.log"; then
+    printf 'clor-node-app test: missing build script was run\n' >&2
+    exit 1
+fi
+
+printf '{"scripts":{"build":"build"}}\n' >"${archive}/package.json"
+if (
+    cd "${archive}"
+    CLOR_NODE_FAIL_BUILD=true CLOR_NODE_TEST_LOG="${archive}/failed.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" archive vite
+); then
+    printf 'clor-node-app test: failed build returned success\n' >&2
+    exit 1
+fi
+grep --quiet --fixed-strings 'git diff --check' "${archive}/failed.log"
+
+printf 'clor-node-app test: ok\n'

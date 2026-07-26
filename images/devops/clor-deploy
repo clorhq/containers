@@ -1,0 +1,48 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+[[ $# -eq 1 ]] || {
+    printf 'usage: clor-deploy shell|infra|logs\n' >&2
+    exit 1
+}
+
+case "$1" in
+    shell)
+        cat <<'EOF'
+Deployment tools (nothing runs until you invoke it)
+  Web       vercel · wrangler · netlify · fly · railway · render · doctl · heroku · firebase
+  Clouds    aws · gcloud · az
+  Delivery  kubectl · helm · kustomize · k9s · stern
+Authenticate with each provider or inject its standard environment variables,
+then run the provider command explicitly.
+EOF
+        ;;
+    infra)
+        cat <<'EOF'
+Infrastructure and artifact tools
+  IaC       tofu · pulumi · ansible
+  Secrets   sops · age · age-keygen
+  Supply    cosign · crane · oras
+  Cluster   kubectl · helm · kustomize · k9s · stern
+These commands do not initialize, preview, apply, or publish anything on entry.
+EOF
+        ;;
+    logs)
+        cat <<'EOF'
+Logs and observability
+  Local     lnav
+  Cluster   stern <pod-query> · kubectl logs
+  Platforms fly logs · railway logs · render services · heroku logs --tail
+  Clouds    aws logs · gcloud logging · az monitor
+Select and authenticate a target explicitly before requesting remote logs.
+EOF
+        ;;
+    *)
+        printf 'usage: clor-deploy shell|infra|logs\n' >&2
+        exit 1
+        ;;
+esac
+
+exec bash --login

@@ -1,0 +1,73 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+fail() {
+    printf 'clor-api-workbench: %s\n' "$*" >&2
+    exit 1
+}
+
+find_spec() {
+    local directory name
+    for directory in . api docs; do
+        for name in openapi.yaml openapi.yml openapi.json swagger.yaml swagger.yml swagger.json; do
+            if [[ -f "${directory}/${name}" ]]; then
+                printf '%s\n' "${directory}/${name}"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+render() {
+    local spec temporary
+    temporary="${OUTPUT_DIRECTORY}/index.html.next"
+    if spec="$(find_spec)"; then
+        redocly build-docs "${spec}" --output "${temporary}"
+    else
+        cat >"${temporary}" <<'EOF'
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>API Workbench ready</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;max-width:46rem;margin:12vh auto;padding:0 2rem;color:#20232a}code{background:#f2f4f7;padding:.15rem .35rem;border-radius:.25rem}</style>
+</head><body><h1>API Workbench is ready</h1>
+<p>Add an API document named <code>openapi.yaml</code>, <code>openapi.yml</code>,
+<code>openapi.json</code>, <code>swagger.yaml</code>, <code>swagger.yml</code>,
+or <code>swagger.json</code> at the repository root or under <code>api/</code>
+or <code>docs/</code>. This page will rebuild automatically.</p></body></html>
+EOF
+    fi
+    mv "${temporary}" "${OUTPUT_DIRECTORY}/index.html"
+}
+
+cleanup() {
+    trap - EXIT INT TERM
+    [[ -z "${SERVER_PID:-}" ]] || kill "${SERVER_PID}" 2>/dev/null || true
+    [[ -z "${WATCH_PID:-}" ]] || kill "${WATCH_PID}" 2>/dev/null || true
+    wait 2>/dev/null || true
+    rm --recursive --force "${OUTPUT_DIRECTORY:-}"
+}
+
+[[ $# -eq 1 ]] || fail 'usage: clor-api-workbench serve|archive'
+case "$1" in
+    archive)
+        git diff --check
+        ;;
+    serve)
+        OUTPUT_DIRECTORY="$(mktemp --directory /tmp/clor-api-workbench.XXXXXX)"
+        trap cleanup EXIT INT TERM
+        render
+        python3 -m http.server 8080 --bind 0.0.0.0 \
+            --directory "${OUTPUT_DIRECTORY}" &
+        SERVER_PID=$!
+        export -f find_spec render
+        export OUTPUT_DIRECTORY
+        watchexec --watch . --filter '*.yaml' --filter '*.yml' --filter '*.json' \
+            --shell bash -- 'render' &
+        WATCH_PID=$!
+        wait -n "${SERVER_PID}" "${WATCH_PID}"
+        ;;
+    *) fail 'usage: clor-api-workbench serve|archive' ;;
+esac

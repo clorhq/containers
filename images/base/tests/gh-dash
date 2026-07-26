@@ -1,0 +1,30 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+HELPER="${GH_DASH_HELPER:-/usr/local/bin/gh-dash}"
+TEST_ROOT="$(mktemp --directory)"
+trap 'rm --recursive --force "${TEST_ROOT}"' EXIT
+mkdir --parents "${TEST_ROOT}/bin" "${TEST_ROOT}/lib"
+
+cat >"${TEST_ROOT}/bin/clor" <<'EOF'
+#!/bin/bash
+printf 'short-lived-token\n'
+EOF
+cat >"${TEST_ROOT}/lib/gh-dash" <<'EOF'
+#!/bin/bash
+printf 'token=%s args=%s\n' "${GH_TOKEN:-}" "$*"
+EOF
+chmod 0755 "${TEST_ROOT}/bin/clor" "${TEST_ROOT}/lib/gh-dash"
+sed "s#/usr/local/lib/clor/gh-dash#${TEST_ROOT}/lib/gh-dash#" \
+    "${HELPER}" >"${TEST_ROOT}/gh-dash"
+chmod 0755 "${TEST_ROOT}/gh-dash"
+
+output="$(PATH="${TEST_ROOT}/bin:${PATH}" env -u GH_TOKEN -u GITHUB_TOKEN \
+    "${TEST_ROOT}/gh-dash" --repo clorhq/clor)"
+[[ "${output}" = 'token=short-lived-token args=--repo clorhq/clor' ]]
+
+output="$(PATH="${TEST_ROOT}/bin:${PATH}" GH_TOKEN=explicit \
+    "${TEST_ROOT}/gh-dash" dashboard)"
+[[ "${output}" = 'token=explicit args=dashboard' ]]
