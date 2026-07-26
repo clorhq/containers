@@ -241,7 +241,6 @@ RUN cargo-binstall --no-confirm --force \
   "mise@${MISE_VERSION}" \
   "ast-grep@${AST_GREP_VERSION}" \
   "xh@${XH_VERSION}" \
-  "oha@${OHA_VERSION}" \
   "websocat@${WEBSOCAT_VERSION}" \
   "typos-cli@${TYPOS_VERSION}" \
   "lychee@${LYCHEE_VERSION}" \
@@ -251,9 +250,9 @@ RUN cargo-binstall --no-confirm --force \
     ln --symbolic "$(command -v sg)" /usr/local/bin/ast-grep; \
   fi
 
-# Hurl's cargo-binstall metadata does not match the layout of its current
-# release archive. Install the exact upstream archive directly and verify the
-# digest GitHub publishes for the selected architecture.
+# Hurl's and oha's cargo-binstall metadata do not match the layout of their
+# current release assets. Install the exact upstream artifacts directly and
+# verify the digests GitHub publishes for the selected architecture.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   hurl_archive="$("/installers/verified-github-asset" Orange-OpenSource/hurl "${HURL_VERSION}" \
@@ -263,6 +262,9 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   && tar --extract --gzip --strip-components=1 \
     --directory=/tmp/hurl --file="${hurl_archive}" \
   && install --mode=0755 /tmp/hurl/bin/hurl /tmp/hurl/bin/hurlfmt /usr/local/bin/ \
+  && oha_binary="$("/installers/verified-github-asset" hatoo/oha "v${OHA_VERSION}" \
+    oha-linux-amd64 oha-linux-arm64)" \
+  && install --mode=0755 "${oha_binary}" /usr/local/bin/oha \
   && rm --recursive --force /tmp/hurl
 
 # Install the browser-based VS Code server.
