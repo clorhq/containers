@@ -53,7 +53,6 @@ jobs:
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=base-${{ matrix.arch }}
       - name: Export digest
         run: |
           mkdir --parents /tmp/digests
@@ -93,7 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [rust, python, zig, ruby, desktop, devops]
+        image: [desktop, devops]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -144,7 +143,6 @@ jobs:
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
       - name: Test the desktop runtime
         if: ${{ matrix.image == 'desktop' }}
         env:
@@ -169,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [rust, python, zig, ruby, desktop, devops]
+        image: [desktop, devops]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -192,7 +190,7 @@ jobs:
           docker buildx imagetools inspect \
             ghcr.io/clorhq/software-development-${{ matrix.image }}:latest
   data:
-    needs: merge-variants
+    needs: merge-base
     strategy:
       matrix:
         include:
@@ -218,7 +216,7 @@ jobs:
           file: images/data/Dockerfile
           target: test
           platforms: ${{ matrix.platform }}
-          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-python:latest
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=cacheonly
           cache-from: type=gha,scope=data-${{ matrix.arch }}
       - id: build
@@ -228,12 +226,11 @@ jobs:
           file: images/data/Dockerfile
           target: production
           platforms: ${{ matrix.platform }}
-          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-python:latest
+          build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=image,name=ghcr.io/clorhq/software-development-data,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=data-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=data-${{ matrix.arch }}
       - name: Test Data service readiness
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}

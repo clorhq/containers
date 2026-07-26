@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the base image and every derived variant on the host's native
+# Build the images referenced by official space configs on the host's native
 # architecture and load them into the local Docker image store. This is the
 # developer/forker path; CI publishes multi-arch images with the workflow.
 # Host-side; runs on macOS bash 3.2 + BSD tools.
@@ -29,7 +29,7 @@ docker buildx build --builder "${BUILDER}" --load \
     ${EXTRA_BUILD_ARGS} \
     .
 
-for VARIANT in rust python zig ruby desktop devops; do
+for VARIANT in desktop devops; do
     echo "==> building software-development-${VARIANT}"
     docker buildx build --builder "${BUILDER}" --load \
         --tag "software-development-${VARIANT}:latest" \
@@ -43,6 +43,6 @@ echo "==> building software-development-data"
 docker buildx build --builder "${BUILDER}" --load \
     --tag software-development-data:latest \
     --file images/data/Dockerfile \
-    --build-arg "BASE_IMAGE=software-development-python:latest" \
+    --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
     ${EXTRA_BUILD_ARGS} \
     .

@@ -1,4 +1,4 @@
-ARG BASE_IMAGE="software-development-python:latest"
+ARG BASE_IMAGE="software-development-base:latest"
 
 FROM ${BASE_IMAGE} AS data
 
@@ -9,6 +9,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
 ENV CLOR_DATA_VENV="/home/user/.local/share/clor/data-venv"
 WORKDIR /home/user
 
+ARG PYTHON_VERSION="3.14.6"
 ARG JUPYTERLAB_VERSION="4.6.2"
 ARG MARIMO_VERSION="0.23.15"
 ARG HARLEQUIN_VERSION="2.5.2"
@@ -19,7 +20,13 @@ ARG POLARS_VERSION="1.43.0"
 ARG PYARROW_VERSION="25.0.0"
 ARG DUCKDB_VERSION="1.5.5"
 ARG IPYKERNEL_VERSION="7.3.0"
-RUN uv venv "${CLOR_DATA_VENV}" \
+RUN uv python install "${PYTHON_VERSION}" \
+  && uv python pin --global "${PYTHON_VERSION}" \
+  && ln --symbolic --force \
+    "$(uv python find "${PYTHON_VERSION}")" /home/user/.local/bin/python \
+  && ln --symbolic --force \
+    "$(uv python find "${PYTHON_VERSION}")" /home/user/.local/bin/python3 \
+  && uv venv --python "${PYTHON_VERSION}" "${CLOR_DATA_VENV}" \
   && uv pip install --python "${CLOR_DATA_VENV}/bin/python" \
     "jupyterlab==${JUPYTERLAB_VERSION}" \
     "marimo[recommended]==${MARIMO_VERSION}" \
