@@ -199,6 +199,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
 COPY --chown=user:user images/base/vscode/settings.json \
   /home/user/.local/share/code-server/User/settings.json
 
+# Skip Lazygit's introductory prompts in newly created spaces.
+COPY --chown=user:user images/base/lazygit/config.yml \
+  /home/user/.config/lazygit/config.yml
+
 # Version source: https://open-vsx.org
 # Pull Requests 0.156.0 is the newest release compatible with Code 1.129.0.
 ARG GITHUB_PULL_REQUESTS_VERSION="0.156.0"
@@ -373,7 +377,10 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
-      && command -v claude clor codex dlv eslint gopls playwright prettier tsx tsc >/dev/null' \
+      && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc >/dev/null \
+      && grep --fixed-strings --line-regexp --quiet \
+        "disableStartupPopups: true" \
+        /home/user/.config/lazygit/config.yml' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/gh \
