@@ -48,7 +48,7 @@ grep --quiet --fixed-strings \
 
 run_case empty-vite setup vite
 grep --quiet --fixed-strings \
-    'pnpm dlx create-vite@8.1.5 . --template react-ts' \
+    'pnpm dlx create-vite@9.1.1 . --template react-ts' \
     "${TEST_ROOT}/empty-vite/commands.log"
 grep --quiet --fixed-strings 'pnpm install' "${TEST_ROOT}/empty-vite/commands.log"
 
@@ -68,6 +68,16 @@ grep --quiet '^bun install --frozen-lockfile$' "${TEST_ROOT}/lock-bun/commands.l
 grep --quiet '^pnpm install --frozen-lockfile$' "${TEST_ROOT}/lock-pnpm-lock/commands.log"
 grep --quiet '^yarn install --immutable$' "${TEST_ROOT}/lock-yarn/commands.log"
 grep --quiet '^npm ci$' "${TEST_ROOT}/lock-package-lock/commands.log"
+
+no_lock="${TEST_ROOT}/no-lock"
+mkdir --parents "${no_lock}"
+printf '{"scripts":{"dev":"dev"}}\n' >"${no_lock}/package.json"
+(
+    cd "${no_lock}"
+    CLOR_NODE_TEST_LOG="${no_lock}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" setup vite
+)
+grep --quiet '^pnpm install$' "${no_lock}/commands.log"
 
 conflict="${TEST_ROOT}/conflict"
 mkdir --parents "${conflict}"
