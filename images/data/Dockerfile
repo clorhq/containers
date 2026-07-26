@@ -60,9 +60,9 @@ RUN gosu user env \
     /home/user/.local/share/clor/data-venv/bin/python -c \
     'import duckdb, ipykernel, marimo, pandas, polars, pyarrow' \
   && gosu user test -w /home/user/.local/share/clor/data-venv \
-  && gosu user jupyter-lab --version \
-  && gosu user marimo --version \
-  && gosu user harlequin --version \
+  && gosu user /home/user/.local/share/clor/data-venv/bin/jupyter-lab --version \
+  && gosu user /home/user/.local/share/clor/data-venv/bin/marimo --version \
+  && gosu user /home/user/.local/share/clor/data-venv/bin/harlequin --version \
   && grep --fixed-strings --quiet '0.0.0.0' /etc/clor/services/jupyterlab.toml \
   && grep --fixed-strings --quiet '8888' /etc/clor/services/jupyterlab.toml \
   && grep --fixed-strings --quiet '2718' /etc/clor/services/marimo.toml \
