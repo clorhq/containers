@@ -83,6 +83,7 @@ jobs:
       - name: Create the multi-arch tag
         working-directory: /tmp/digests
         run: |
+          test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-base:latest \
             $(printf 'ghcr.io/clorhq/software-development-base@sha256:%s ' *)
@@ -184,6 +185,7 @@ jobs:
       - name: Create the multi-arch tag
         working-directory: /tmp/digests
         run: |
+          test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-${{ matrix.image }}:latest \
             $(printf 'ghcr.io/clorhq/software-development-${{ matrix.image }}@sha256:%s ' *)
@@ -267,6 +269,7 @@ jobs:
       - name: Create the multi-arch tag and record its digest
         working-directory: /tmp/digests
         run: |
+          test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-data:latest \
             $(printf 'ghcr.io/clorhq/software-development-data@sha256:%s ' *)
