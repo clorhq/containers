@@ -46,15 +46,56 @@ repository_is_empty() {
     return 0
 }
 
+approve_next_pnpm_builds() {
+    NEXT_BUILD_APPROVALS_CHANGED=false
+    [[ "${KIND}" = next ]] || return 0
+    [[ -f pnpm-workspace.yaml ]] || return 0
+
+    local PACKAGE
+    for PACKAGE in sharp unrs-resolver; do
+        if grep --extended-regexp --quiet \
+            "^[[:space:]]+${PACKAGE}: set this to true or false[[:space:]]*$" \
+            pnpm-workspace.yaml; then
+            sed --in-place --regexp-extended \
+                "s/^([[:space:]]+)(${PACKAGE}): set this to true or false[[:space:]]*$/\\1\\2: true/" \
+                pnpm-workspace.yaml
+            NEXT_BUILD_APPROVALS_CHANGED=true
+        fi
+    done
+}
+
+configure_next_preview_origins() {
+    [[ "${KIND}" = next ]] || return 0
+    cat >next.config.ts <<'EOF'
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ["*.clor.host", "**.clor.host"],
+};
+
+export default nextConfig;
+EOF
+}
+
 install_dependencies() {
     case "$1" in
         bun) bun install --frozen-lockfile ;;
         pnpm)
+            local PNPM_ARGUMENTS=(install)
             if [[ -f pnpm-lock.yaml ]]; then
-                pnpm install --frozen-lockfile
-            else
-                pnpm install
+                PNPM_ARGUMENTS+=(--frozen-lockfile)
             fi
+            approve_next_pnpm_builds
+            if pnpm "${PNPM_ARGUMENTS[@]}"; then
+                return
+            fi
+            local INSTALL_STATUS=$?
+            approve_next_pnpm_builds
+            if [[ "${NEXT_BUILD_APPROVALS_CHANGED}" = true ]]; then
+                pnpm "${PNPM_ARGUMENTS[@]}"
+                return
+            fi
+            return "${INSTALL_STATUS}"
             ;;
         yarn) yarn install --immutable ;;
         npm) npm ci ;;
@@ -82,6 +123,8 @@ scaffold() {
             pnpm dlx "create-next-app@${NEXT_CREATE_VERSION}" . \
                 --typescript --eslint --tailwind --app --src-dir \
                 --use-pnpm --import-alias '@/*' --yes --disable-git
+            approve_next_pnpm_builds
+            configure_next_preview_origins
             ;;
         vite)
             pnpm dlx "create-vite@${VITE_CREATE_VERSION}" . \

@@ -230,8 +230,6 @@ ARG LYCHEE_VERSION="0.24.2"
 ARG TYPST_VERSION="0.15.1"
 ARG PRESENTERM_VERSION="0.16.1"
 RUN cargo-binstall --no-confirm --force \
-  "yazi-fm@${YAZI_VERSION}" \
-  "yazi-cli@${YAZI_VERSION}" \
   "git-delta@${DELTA_VERSION}" \
   "difftastic@${DIFFTASTIC_VERSION}" \
   "eza@${EZA_VERSION}" \
@@ -249,6 +247,25 @@ RUN cargo-binstall --no-confirm --force \
   && if ! command -v ast-grep >/dev/null 2>&1; then \
     ln --symbolic "$(command -v sg)" /usr/local/bin/ast-grep; \
   fi
+
+# Install Yazi's pinned architecture-specific upstream archive directly into
+# the system path. This keeps both public commands in the production
+# filesystem independently of cargo-binstall's package metadata and bin path.
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  YAZI_ARCHIVE="$("/installers/verified-github-asset" sxyazi/yazi "v${YAZI_VERSION}" \
+    yazi-x86_64-unknown-linux-musl.zip \
+    yazi-aarch64-unknown-linux-musl.zip)" \
+  && mkdir --parents /tmp/yazi \
+  && unzip -q "${YAZI_ARCHIVE}" -d /tmp/yazi \
+  && YAZI_DIRECTORY="$(find /tmp/yazi \
+    -mindepth 1 -maxdepth 1 -type d -name 'yazi-*' -print -quit)" \
+  && test -n "${YAZI_DIRECTORY}" \
+  && install --mode=0755 \
+    "${YAZI_DIRECTORY}/yazi" \
+    "${YAZI_DIRECTORY}/ya" \
+    /usr/local/bin/ \
+  && rm --recursive --force /tmp/yazi
 
 # Hurl's and oha's cargo-binstall metadata do not match the layout of their
 # current release assets. Install the exact upstream artifacts directly and
@@ -547,7 +564,11 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
-      && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc >/dev/null \
+      && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
+      && test "$(command -v ya)" = /usr/local/bin/ya \
+      && test "$(command -v yazi)" = /usr/local/bin/yazi \
+      && ya --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
+      && yazi --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && grep --fixed-strings --line-regexp --quiet \
         "disableStartupPopups: true" \
         /home/user/.config/lazygit/config.yml' \

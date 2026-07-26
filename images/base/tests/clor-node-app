@@ -16,6 +16,23 @@ printf '%s %s\n' "$(basename "$0")" "$*" >>"${CLOR_NODE_TEST_LOG}"
 if [[ "$(basename "$0")" = pnpm && "${1:-}" = dlx ]]; then
     printf '{"scripts":{"dev":"dev","build":"build"}}\n' >package.json
     printf 'lockfileVersion: 9\n' >pnpm-lock.yaml
+    printf '%s\n' \
+        'allowBuilds:' \
+        '  sharp: set this to true or false' \
+        '  unrs-resolver: set this to true or false' \
+        >pnpm-workspace.yaml
+fi
+if [[ "$(basename "$0")" = pnpm &&
+    "${1:-}" = install &&
+    "${CLOR_NODE_ADD_APPROVALS:-false}" = true &&
+    ! -f .approval-attempted ]]; then
+    : >.approval-attempted
+    printf '%s\n' \
+        'allowBuilds:' \
+        '  sharp: set this to true or false' \
+        '  unrs-resolver: set this to true or false' \
+        >pnpm-workspace.yaml
+    exit 17
 fi
 if [[ "${CLOR_NODE_FAIL_BUILD:-false}" = true && "$*" = *"run build"* ]]; then
     exit 42
@@ -45,6 +62,13 @@ run_case empty-next setup next
 grep --quiet --fixed-strings \
     'pnpm dlx create-next-app@16.2.12 . --typescript --eslint --tailwind --app --src-dir --use-pnpm --import-alias @/* --yes --disable-git' \
     "${TEST_ROOT}/empty-next/commands.log"
+grep --quiet --fixed-strings 'sharp: true' \
+    "${TEST_ROOT}/empty-next/pnpm-workspace.yaml"
+grep --quiet --fixed-strings 'unrs-resolver: true' \
+    "${TEST_ROOT}/empty-next/pnpm-workspace.yaml"
+grep --quiet --fixed-strings \
+    'allowedDevOrigins: ["*.clor.host", "**.clor.host"],' \
+    "${TEST_ROOT}/empty-next/next.config.ts"
 
 run_case empty-vite setup vite
 grep --quiet --fixed-strings \
@@ -68,6 +92,46 @@ grep --quiet '^bun install --frozen-lockfile$' "${TEST_ROOT}/lock-bun/commands.l
 grep --quiet '^pnpm install --frozen-lockfile$' "${TEST_ROOT}/lock-pnpm-lock/commands.log"
 grep --quiet '^yarn install --immutable$' "${TEST_ROOT}/lock-yarn/commands.log"
 grep --quiet '^npm ci$' "${TEST_ROOT}/lock-package-lock/commands.log"
+
+pnpm_next="${TEST_ROOT}/pnpm-next"
+mkdir --parents "${pnpm_next}"
+printf '{"scripts":{"dev":"dev"}}\n' >"${pnpm_next}/package.json"
+: >"${pnpm_next}/pnpm-lock.yaml"
+printf '%s\n' \
+    'packages:' \
+    '  - apps/*' \
+    'allowBuilds:' \
+    '  sharp: set this to true or false' \
+    '  unrs-resolver: set this to true or false' \
+    >"${pnpm_next}/pnpm-workspace.yaml"
+(
+    cd "${pnpm_next}"
+    CLOR_NODE_TEST_LOG="${pnpm_next}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" setup next
+)
+grep --quiet --fixed-strings 'sharp: true' \
+    "${pnpm_next}/pnpm-workspace.yaml"
+grep --quiet --fixed-strings 'unrs-resolver: true' \
+    "${pnpm_next}/pnpm-workspace.yaml"
+grep --quiet --fixed-strings '  - apps/*' \
+    "${pnpm_next}/pnpm-workspace.yaml"
+
+pnpm_discovered="${TEST_ROOT}/pnpm-discovered"
+mkdir --parents "${pnpm_discovered}"
+printf '{"scripts":{"dev":"dev"}}\n' >"${pnpm_discovered}/package.json"
+: >"${pnpm_discovered}/pnpm-lock.yaml"
+(
+    cd "${pnpm_discovered}"
+    CLOR_NODE_ADD_APPROVALS=true \
+        CLOR_NODE_TEST_LOG="${pnpm_discovered}/commands.log" \
+        PATH="${STUB_BIN}:${PATH}" "${HELPER}" setup next
+)
+[[ "$(grep --count '^pnpm install --frozen-lockfile$' \
+    "${pnpm_discovered}/commands.log")" = 2 ]]
+grep --quiet --fixed-strings 'sharp: true' \
+    "${pnpm_discovered}/pnpm-workspace.yaml"
+grep --quiet --fixed-strings 'unrs-resolver: true' \
+    "${pnpm_discovered}/pnpm-workspace.yaml"
 
 no_lock="${TEST_ROOT}/no-lock"
 mkdir --parents "${no_lock}"

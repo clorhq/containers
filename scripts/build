@@ -11,38 +11,71 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_ROOT}"
 
 BASE_TAG="software-development-base"
-EXTRA_BUILD_ARGS="${EXTRA_BUILD_ARGS:-}"
+EXTRA_BUILD_ARGUMENTS=()
+if [[ -n "${EXTRA_BUILD_ARGS:-}" ]]; then
+    read -r -a EXTRA_BUILD_ARGUMENTS <<<"${EXTRA_BUILD_ARGS}"
+fi
 CLOR_BUILD_NONCE="${CLOR_BUILD_NONCE:-$(date +%s)-$$}"
 
-# Local builds pin the default docker-driver builder: a docker-container
-# builder (the multi-arch push path) is isolated from the host image store,
-# so a derived image's FROM software-development-base:latest would fall through to
-# Docker Hub instead of the base image just built. The docker driver builds
-# straight into the local store, where the variants can see it.
-BUILDER="default"
+# Local builds require the active Docker-context builder unless explicitly
+# overridden. A docker-container builder is isolated from the host image store,
+# so a derived image's FROM software-development-base:latest would fall through
+# to Docker Hub instead of the Base image just loaded.
+BUILDER="${CLOR_BUILDER:-$(docker context show)}"
+BUILDER_ARGUMENTS=(--builder "${BUILDER}")
+BUILDER_DRIVER="$(docker buildx inspect "${BUILDER}" --format '{{.Driver}}')"
+if [[ "${BUILDER_DRIVER}" != docker ]]; then
+    printf 'scripts/build: active buildx driver is %s, expected docker\n' \
+        "${BUILDER_DRIVER}" >&2
+    exit 1
+fi
 
 echo "==> building ${BASE_TAG}"
-docker buildx build --builder "${BUILDER}" --load \
-    --tag "${BASE_TAG}:latest" \
+docker buildx build "${BUILDER_ARGUMENTS[@]}" \
+    --target test \
+    --output type=cacheonly \
     --file images/base/Dockerfile \
     --build-arg "CLOR_BUILD_NONCE=${CLOR_BUILD_NONCE}" \
-    ${EXTRA_BUILD_ARGS} \
+    "${EXTRA_BUILD_ARGUMENTS[@]}" \
+    .
+docker buildx build "${BUILDER_ARGUMENTS[@]}" --load \
+    --tag "${BASE_TAG}:latest" \
+    --target production \
+    --file images/base/Dockerfile \
+    --build-arg "CLOR_BUILD_NONCE=${CLOR_BUILD_NONCE}" \
+    "${EXTRA_BUILD_ARGUMENTS[@]}" \
     .
 
 for VARIANT in desktop devops; do
     echo "==> building software-development-${VARIANT}"
-    docker buildx build --builder "${BUILDER}" --load \
-        --tag "software-development-${VARIANT}:latest" \
+    docker buildx build "${BUILDER_ARGUMENTS[@]}" \
+        --target test \
+        --output type=cacheonly \
         --file "images/${VARIANT}/Dockerfile" \
         --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
-        ${EXTRA_BUILD_ARGS} \
+        "${EXTRA_BUILD_ARGUMENTS[@]}" \
+        .
+    docker buildx build "${BUILDER_ARGUMENTS[@]}" --load \
+        --tag "software-development-${VARIANT}:latest" \
+        --target production \
+        --file "images/${VARIANT}/Dockerfile" \
+        --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
+        "${EXTRA_BUILD_ARGUMENTS[@]}" \
         .
 done
 
 echo "==> building software-development-data"
-docker buildx build --builder "${BUILDER}" --load \
-    --tag software-development-data:latest \
+docker buildx build "${BUILDER_ARGUMENTS[@]}" \
+    --target test \
+    --output type=cacheonly \
     --file images/data/Dockerfile \
     --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
-    ${EXTRA_BUILD_ARGS} \
+    "${EXTRA_BUILD_ARGUMENTS[@]}" \
+    .
+docker buildx build "${BUILDER_ARGUMENTS[@]}" --load \
+    --tag software-development-data:latest \
+    --target production \
+    --file images/data/Dockerfile \
+    --build-arg "BASE_IMAGE=${BASE_TAG}:latest" \
+    "${EXTRA_BUILD_ARGUMENTS[@]}" \
     .
