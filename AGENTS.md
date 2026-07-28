@@ -2,6 +2,32 @@
 
 Container images for software development, published to `ghcr.io/clorhq`.
 
+## Scope: this repository only
+
+Work only in `clorhq/containers`. Do not clone, edit, branch, or open pull
+requests against another repository unless explicitly told to in that request.
+
+Plenty of what a space does is *not* built here — the Clor CLI and its web
+terminal, the space daemon, the webtui's embedded fonts and pane commands, the
+generated `~/.config` files for tools like gh-dash. A problem showing up inside
+a space is not evidence that its fix belongs here. Before changing anything,
+confirm the thing you are about to edit is actually produced by this tree
+(`git grep` it, check which `images/*/Dockerfile` installs it).
+
+When the fix lands outside this repo, **stop and write it up** rather than
+going looking for the other repository: name the file or setting, the current
+value, the replacement, and the evidence. The user routes it from there.
+
+Two worked examples:
+
+- **gh-dash launched unauthenticated.** The root cause *was* here — the
+  Dockerfile left a `go install` copy in `~/go/bin` shadowing the wrapper — so
+  it was fixed here.
+- **Nerd Font glyphs render as tofu.** The `clor` binary embeds its own
+  `JetBrainsMono-*.woff2` and serves it to the browser, so it overrides any
+  font installed in the image. Nothing in this repo can fix it, and installing
+  fonts here would only have affected the desktop image's X terminal.
+
 ## This repository is public
 
 `clorhq/containers` is a public repository, and the images it builds are
