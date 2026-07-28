@@ -432,12 +432,17 @@ USER root
 ENV HOME="/root"
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
-# Adapt only this exact code-server release's built-in GitHub provider. The
-# original provider remains responsible for normal and GitHub Enterprise auth.
+# Drop the go install copy of gh-dash once it is behind the wrapper: the space
+# PATH puts /home/user/go/bin ahead of /usr/local/bin, so leaving it there
+# shadows the wrapper and gh-dash starts with no GH_TOKEN. The other tools need
+# no wrapper, so their go install copies are harmless.
 RUN install --mode=0755 /home/user/go/bin/gh-dash /usr/local/lib/clor/gh-dash \
+  && rm /home/user/go/bin/gh-dash \
   && for tool in yq grpcurl grpcui actionlint gitleaks osv-scanner vale direnv; do \
     install --mode=0755 "/home/user/go/bin/${tool}" "/usr/local/bin/${tool}"; \
   done
+# Adapt only this exact code-server release's built-in GitHub provider. The
+# original provider remains responsible for normal and GitHub Enterprise auth.
 RUN test "${VSCODE_VERSION}" = "4.129.0" \
   && printf '%s  %s\n' \
     26035111b16f05f6bdaefe51f200312b12b104d0f9e60ec94c536990c5c8ac0e \
@@ -455,6 +460,25 @@ RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode
     "${github_auth_package}" \
   && test "$(jq --raw-output .main "${github_auth_package}")" = \
     "./clor-adapter.js"
+# Code only hands a session to an extension that the user has consented to, or
+# that product.json pre-trusts. Spaces authenticate through Clor with no user
+# to click Allow, so the GitHub extensions we ship are pre-trusted too:
+# without this the Actions view sits at "Sign in to GitHub" even though the
+# provider above is holding a valid session. Git, Pull Requests, and Copilot
+# are already on the stock list.
+RUN product_json="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json" \
+  && test "$(jq --raw-output \
+    '.trustedExtensionAuthAccess | type' "${product_json}")" = "array" \
+  && jq '.trustedExtensionAuthAccess |= (
+      if index("github.vscode-github-actions") then .
+      else . + ["github.vscode-github-actions"] end)' \
+    "${product_json}" >/tmp/product.json \
+  && mv /tmp/product.json "${product_json}" \
+  && chmod 0644 "${product_json}" \
+  && test "$(jq --raw-output \
+    '[.trustedExtensionAuthAccess[]
+      | select(. == "github.vscode-github-actions")] | length' \
+    "${product_json}")" = 1
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
 COPY --chmod=0755 images/base/gh-dash /usr/local/bin/gh-dash
 COPY --chmod=0755 images/base/clor-node-app /usr/local/bin/clor-node-app
@@ -567,6 +591,8 @@ RUN test "${HOME}" = /root \
       && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
       && test "$(command -v ya)" = /usr/local/bin/ya \
       && test "$(command -v yazi)" = /usr/local/bin/yazi \
+      && test "$(command -v gh)" = /usr/local/bin/gh \
+      && test "$(command -v gh-dash)" = /usr/local/bin/gh-dash \
       && ya --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && yazi --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && grep --fixed-strings --line-regexp --quiet \
@@ -587,6 +613,11 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
+  && test "$(jq --raw-output \
+    '.trustedExtensionAuthAccess
+      | index("github.vscode-github-actions") != null' \
+    /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json)" = \
+    "true" \
   && node --check \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-adapter.js \
   && node --check \
