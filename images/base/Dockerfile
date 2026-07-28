@@ -311,6 +311,9 @@ RUN groupadd \
 COPY --chmod=0644 images/base/profile.d/space-tools.sh \
   /etc/profile.d/clor-space-tools.sh
 
+# System-wide so both root and the space user get truecolor under tmux.
+COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
+
 USER user
 ENV HOME="/home/user"
 WORKDIR /home/user
@@ -609,6 +612,11 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
+  && TERM=xterm-256color COLORTERM=truecolor script --quiet --return --command \
+    "tmux -L rgbcheck new-session \"tmux display -p '#{client_termfeatures}' >/tmp/termfeatures\"" \
+    /dev/null >/dev/null \
+  && grep --quiet RGB /tmp/termfeatures \
+  && rm --force /tmp/termfeatures \
   && test "$(jq --raw-output '.trustedExtensionAuthAccess | index("github.vscode-github-actions") != null' \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json)" = "true" \
   && node --check \
