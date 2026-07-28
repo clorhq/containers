@@ -467,18 +467,14 @@ RUN github_auth_package="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode
 # provider above is holding a valid session. Git, Pull Requests, and Copilot
 # are already on the stock list.
 RUN product_json="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json" \
-  && test "$(jq --raw-output \
-    '.trustedExtensionAuthAccess | type' "${product_json}")" = "array" \
-  && jq '.trustedExtensionAuthAccess |= (
-      if index("github.vscode-github-actions") then .
-      else . + ["github.vscode-github-actions"] end)' \
+  && test "$(jq --raw-output '.trustedExtensionAuthAccess | type' \
+    "${product_json}")" = "array" \
+  && jq '.trustedExtensionAuthAccess |= (if index("github.vscode-github-actions") then . else . + ["github.vscode-github-actions"] end)' \
     "${product_json}" >/tmp/product.json \
   && mv /tmp/product.json "${product_json}" \
   && chmod 0644 "${product_json}" \
-  && test "$(jq --raw-output \
-    '[.trustedExtensionAuthAccess[]
-      | select(. == "github.vscode-github-actions")] | length' \
-    "${product_json}")" = 1
+  && test "$(jq --raw-output '.trustedExtensionAuthAccess | index("github.vscode-github-actions") != null' \
+    "${product_json}")" = "true"
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
 COPY --chmod=0755 images/base/gh-dash /usr/local/bin/gh-dash
 COPY --chmod=0755 images/base/clor-node-app /usr/local/bin/clor-node-app
@@ -613,11 +609,8 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
-  && test "$(jq --raw-output \
-    '.trustedExtensionAuthAccess
-      | index("github.vscode-github-actions") != null' \
-    /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json)" = \
-    "true" \
+  && test "$(jq --raw-output '.trustedExtensionAuthAccess | index("github.vscode-github-actions") != null' \
+    /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json)" = "true" \
   && node --check \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/extensions/github-authentication/clor-adapter.js \
   && node --check \
