@@ -44,9 +44,11 @@ curl --fail --silent --show-error --head \
 
 | Path | Purpose |
 | --- | --- |
-| `images/<name>/Dockerfile` | One image per directory: `base`, plus `rust`, `python`, `zig`, `ruby`, `desktop` |
+| `images/<name>/Dockerfile` | One image per directory |
 | `images/<name>/tests/` | Test assets copied only into the `test` stage, never into `production` |
 | `installers/<tool>` | In-container install script; takes the version as `$1` |
+| `installers/verified-github-asset` | Resolves and checksum-verifies a per-arch GitHub release asset |
+| `installers/cargo-binstall` | Bootstraps cargo-binstall, used for the pinned Rust-native tools |
 | `versions/<tool>` | Host-side script printing the latest upstream version of `<tool>` |
 | `versions/lib` | Shared `github_latest` / `github_latest_tag` / `npm_latest` helpers |
 | `scripts/build` | Native-arch build of every image into the local Docker store |
@@ -54,16 +56,21 @@ curl --fail --silent --show-error --head \
 | `scripts/update` | Rewrites every `ARG *_VERSION` default to the latest upstream version |
 | `.github/workflows/build.yml` | CI: per-arch native builds pushed by digest, then merged into one tag |
 
-`images/base` is the root image. Every variant is `FROM ${BASE_IMAGE}` and
+`images/base` is the root image. Every other image is `FROM ${BASE_IMAGE}` and
 inherits the agents, OS tooling, and base toolchains.
+
+**Only four images are actually built and published:** `base`, `desktop`,
+`devops`, and `data`. See "Known drift" for the rest.
 
 ## Version pinning
 
 Every downloaded tool is pinned to an explicit `ARG <TOOL>_VERSION="x.y.z"`
 default in the Dockerfile. Nothing installs "latest" at build time, so a
-rebuild of an unchanged tree produces the same tool set.
+rebuild of an unchanged tree produces the same tool set. Each `ARG` carries a
+`# Version source: <url>` comment naming where the version comes from; keep it
+next to the pin.
 
-The three pieces are wired together by name:
+Where all three parts exist, they are wired together by name:
 
 ```
 ARG GOLANGCI_LINT_VERSION="2.12.2"   # in the Dockerfile
@@ -72,14 +79,18 @@ installers/golangci-lint 2.12.2      # installs that version in the image
 ```
 
 `scripts/update` derives the script name from the ARG name (strip `_VERSION`,
-lowercase, `_` → `-`). **Adding a new pinned tool means adding all three**, or
-`scripts/update` will skip it with a warning and the pin will silently rot.
+lowercase, `_` → `-`) and **silently skips any ARG with no matching
+`versions/` script**, printing a `skip …` line to stderr. Most pins are in
+that state today (see "Known drift"), so read `scripts/update`'s stderr — a
+clean-looking run is not the same as a complete one.
 
-Each `ARG` carries a `# Version source: <url>` comment naming where the version
-comes from; keep it next to the pin.
-
-Run `./scripts/update` to bump everything, then review the diff — a bump is a
+Run `./scripts/update` to bump what it can, then review the diff — a bump is a
 real change to the image and should be committed on its own.
+
+Fetching a release asset directly (no installer of its own) goes through
+`installers/verified-github-asset OWNER/REPO TAG AMD64_ASSET ARM64_ASSET`,
+which picks the asset for the build architecture, verifies the digest GitHub
+publishes for it, and echoes the cached path. Prefer it over a bare `curl`.
 
 ## Building and testing
 
@@ -88,7 +99,7 @@ real change to the image and should be committed on its own.
 ```
 
 Local builds pin the `default` (docker-driver) builder on purpose: a
-docker-container builder cannot see the host image store, so a variant's
+docker-container builder cannot see the host image store, so a derived image's
 `FROM software-development-base:latest` would fall through to Docker Hub.
 
 Most tests live in the Dockerfile's `test` stage, which asserts against the
@@ -101,25 +112,52 @@ environment and profile behavior, `bash -n`, `node --check`, `shellcheck`, and
 docker buildx build --target test -f images/base/Dockerfile .
 ```
 
-The desktop image adds `images/desktop/tests/runtime`, which needs a real
+Only `base`, `data`, `desktop`, and `devops` have a `test` stage. The desktop
+image additionally has `images/desktop/tests/runtime`, which needs a real
 container and so runs after the push in CI rather than inside a build stage.
 
 When you add or change a shipped script, add it to the `bash -n`, `shellcheck`,
 and `shfmt` lists in the `test` stage.
+
+### Assert what a command resolves to, not just that it exists
+
+The space user's `PATH` is
+`~/.local/bin:~/go/bin:~/.npm-global/bin:…:/usr/local/bin`, so **anything left
+in `~/go/bin` or `~/.local/bin` shadows a wrapper of the same name in
+`/usr/local/bin`**. This has bitten `gh-dash`: its `go install` copy stayed
+behind and won over the wrapper that injects `GH_TOKEN`, so it launched
+unauthenticated while `command -v gh-dash` still succeeded.
+
+For any tool that ships behind a wrapper, assert the full path:
+
+```dockerfile
+&& test "$(command -v gh-dash)" = /usr/local/bin/gh-dash \
+```
+
+and delete the build-time copy once it has been installed to its final home.
 
 ## CI
 
 `build.yml` runs on pushes to `main` and on `workflow_dispatch`. Each
 architecture builds on its own native runner (`ubuntu-latest` for amd64,
 `ubuntu-24.04-arm` for arm64) and pushes **by digest** — no QEMU anywhere. The
-`merge-base` / `merge-variants` jobs then stitch the per-arch digests into a
-single multi-arch `:latest` tag with `docker buildx imagetools create`.
+`merge-*` jobs then stitch the per-arch digests into a single multi-arch
+`:latest` tag with `docker buildx imagetools create`.
 
-Variants build `FROM ghcr.io/clorhq/software-development-base:latest`, so they
-depend on `merge-base` having published the new base first.
+Jobs: `base` → `merge-base` → `variants` (`desktop`, `devops`) →
+`merge-variants`, plus `data` → `merge-data`. Everything downstream builds
+`FROM ghcr.io/clorhq/software-development-base:latest`, so it depends on
+`merge-base` having published the new base first. **`base` and `merge-base`
+finish well before the rest** — if you only need the base digest, watch those
+two jobs and ignore the others.
+
+`workflow_dispatch` also accepts `data_only` (rebuild just Data against a given
+`base_ref`) and `merge_data_only` (assemble Data from supplied per-arch
+digests), which is why the concurrency group varies by mode.
 
 `[skip ci]` in a commit message skips the build entirely — the tree can be
-ahead of what `:latest` contains.
+ahead of what `:latest` contains. Use it for docs-only commits so they don't
+kick off a full rebuild.
 
 ## Shell style
 
@@ -154,11 +192,38 @@ uid 1000. The installers themselves are bind-mounted read-only from
 - `test` and `production` are both `FROM base`, so test assets never reach the
   published image.
 - `CLOR_BUILD_NONCE` deliberately busts the cache for the layer that installs
-  the unpinned latest Clor build.
-- Remote assets fetched by URL are pinned by checksum (see `CLOR_LOGO_SHA256`).
+  the unpinned latest Clor build. It is the one intentional exception to the
+  everything-is-pinned rule, and the build asserts it is non-empty.
+- Remote assets fetched by URL are pinned by checksum, either through
+  `installers/verified-github-asset` or an explicit `sha256sum --check`.
+- Patches to code-server's own files (the GitHub auth provider, `product.json`)
+  sit next to a version assertion or checksum so an upstream bump fails loudly
+  instead of silently no-opping.
+
+### code-server GitHub authentication
+
+`images/base/vscode/github-authentication/` replaces the built-in provider's
+entrypoint so sessions come from `clor github auth` instead of a device-code
+flow. Because spaces authenticate with no human to click **Allow**, extensions
+must also appear in `product.json`'s `trustedExtensionAuthAccess` — Code
+returns nothing to a silent `getSession` for an untrusted extension, and the
+extension simply renders as signed out. If a newly added GitHub extension shows
+"Sign in", that list is the first place to look.
 
 ## Known drift
 
-`README.md` lists `software-development-go` and `software-development-typescript`
-images that do not exist — there is no `images/go` or `images/typescript`, and
-neither is in the CI matrix. The Go and TypeScript toolchains ship in `base`.
+- **`images/rust`, `images/python`, `images/zig`, `images/ruby` are no longer
+  built.** They have Dockerfiles but are absent from the CI matrix and have no
+  `test` stage. Their `:latest` tags on GHCR are stale leftovers from before
+  the catalog was narrowed. Either restore them to the matrix or delete them —
+  right now they look supported and are not.
+- **`README.md` lists `software-development-go` and
+  `software-development-typescript`**, which have never existed as directories,
+  and still advertises the four unbuilt language images above. Those toolchains
+  ship in `base`.
+- **Most `ARG *_VERSION` pins have no `versions/` script** — roughly eighty,
+  including everything installed via cargo-binstall and
+  `verified-github-asset` (yazi, delta, eza, mise, ast-grep, hurl, the cloud
+  CLIs, the Data image's Python packages, the code-server extensions).
+  `scripts/update` cannot bump any of them, so they only move when edited by
+  hand.
