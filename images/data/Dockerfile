@@ -42,7 +42,13 @@ RUN uv python install "${PYTHON_VERSION}" \
     ln --symbolic "${CLOR_DATA_VENV}/bin/${command}" "/home/user/.local/bin/${command}"; \
   done \
   && "${CLOR_DATA_VENV}/bin/python" -m ipykernel install \
-    --user --name clor-data --display-name "Clor Data"
+    --user --name clor-data --display-name "Clor Data" \
+  && mkdir --parents "${CLOR_DATA_VENV}/etc/jupyter"
+
+# sys.prefix/etc/jupyter, not /etc/jupyter: the service sets
+# JUPYTER_PLATFORM_DIRS=1, which drops the system config path. See the file.
+COPY --chown=user:user --chmod=0644 images/data/jupyter/jupyter_server_config.py \
+  ${CLOR_DATA_VENV}/etc/jupyter/jupyter_server_config.py
 
 USER root
 ENV HOME="/root"
@@ -66,6 +72,17 @@ RUN gosu user env \
   && grep --fixed-strings --quiet '0.0.0.0' /etc/clor/services/jupyterlab.toml \
   && grep --fixed-strings --quiet '8888' /etc/clor/services/jupyterlab.toml \
   && grep --fixed-strings --quiet '2718' /etc/clor/services/marimo.toml \
+  && grep --fixed-strings --quiet 'frame-ancestors *' \
+    /home/user/.local/share/clor/data-venv/etc/jupyter/jupyter_server_config.py \
+  && gosu user env \
+    HOME=/home/user \
+    /home/user/.local/share/clor/data-venv/bin/python -m py_compile \
+    /home/user/.local/share/clor/data-venv/etc/jupyter/jupyter_server_config.py \
+  && gosu user env \
+    HOME=/home/user \
+    JUPYTER_PLATFORM_DIRS=1 \
+    /home/user/.local/share/clor/data-venv/bin/python -c \
+    'import sys, jupyter_core.paths as paths; sys.exit("/home/user/.local/share/clor/data-venv/etc/jupyter" not in paths.jupyter_config_path())' \
   && ! find /home/user -maxdepth 2 -type f \
     \( -name credentials -o -name '*.token' \) -print -quit | grep .
 

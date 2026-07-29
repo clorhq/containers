@@ -6,12 +6,17 @@ set -o pipefail
 IMAGE="${1:?usage: runtime IMAGE}"
 CONTAINER="clor-data-test-${RANDOM}-$$"
 REPOSITORY="$(mktemp --directory)"
+HEADERS="$(mktemp)"
+BODY="$(mktemp)"
 cleanup() {
     docker rm --force "${CONTAINER}" >/dev/null 2>&1 || true
+    rm --force "${HEADERS}" "${BODY}"
 }
 trap cleanup EXIT INT TERM
 chmod 0777 "${REPOSITORY}"
 
+# JUPYTER_PLATFORM_DIRS mirrors images/data/services/jupyterlab.toml, because it
+# is what decides whether the shipped jupyter_server_config.py is found at all.
 docker run --detach --name "${CONTAINER}" \
     --volume "${REPOSITORY}:/space/repository" \
     --publish 127.0.0.1::8888 \
@@ -19,7 +24,7 @@ docker run --detach --name "${CONTAINER}" \
     "${IMAGE}" \
     bash --login -c '
         cd /space/repository
-        jupyter-lab --no-browser --ip=0.0.0.0 --port=8888 \
+        JUPYTER_PLATFORM_DIRS=1 jupyter-lab --no-browser --ip=0.0.0.0 --port=8888 \
             --ServerApp.root_dir=. --ServerApp.token= \
             --ServerApp.password= --IdentityProvider.token= &
         marimo edit --no-token --headless --host 0.0.0.0 --port 2718 &
@@ -42,6 +47,34 @@ for _ in $(seq 1 60); do
 done
 [[ "${jupyter_status}" = 200 ]]
 [[ "${marimo_status}" = 200 ]]
+
+# The tab is an iframe on clor.com, so Jupyter's stock "frame-ancestors 'self'"
+# blocks it: a browser enforces every policy it receives, and that one
+# intersects the Clor edge's allowlist down to nothing.
+curl --silent --output /dev/null --dump-header "${HEADERS}" \
+    "http://127.0.0.1:${jupyter_port}/lab"
+grep --ignore-case --fixed-strings --quiet \
+    'content-security-policy: frame-ancestors *' "${HEADERS}"
+if grep --fixed-strings --quiet "frame-ancestors 'self'" "${HEADERS}"; then
+    printf 'jupyter still sends the default frame-ancestors policy\n' >&2
+    exit 1
+fi
+
+# Cross-origin and cookie-less, exactly as the browser sends it from inside the
+# iframe. Without allow_origin, APIHandler.prepare masks the failed origin check
+# as a 404; with it but no disable_check_xsrf, the missing _xsrf cookie is a 403.
+# So a 201 proves both took effect -- and that the clor-data kernelspec starts.
+kernel_status="$(curl --silent --output "${BODY}" --write-out '%{http_code}' \
+    --header 'Origin: https://example.clor.host' \
+    --header 'Content-Type: application/json' \
+    --data '{"name": "clor-data"}' \
+    "http://127.0.0.1:${jupyter_port}/api/kernels")"
+[[ "${kernel_status}" = 201 ]]
+kernel_id="$(sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' "${BODY}")"
+[[ -n "${kernel_id}" ]]
+curl --silent --show-error --fail --request DELETE \
+    --header 'Origin: https://example.clor.host' \
+    "http://127.0.0.1:${jupyter_port}/api/kernels/${kernel_id}"
 
 [[ "$(docker exec --user user --workdir /space/repository "${CONTAINER}" pwd)" = /space/repository ]]
 docker exec --user user "${CONTAINER}" \
