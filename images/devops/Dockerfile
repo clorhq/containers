@@ -126,7 +126,7 @@ ARG ORAS_VERSION="1.3.3"
 # these ten builds write about three gigabytes into them for roughly a hundred
 # megabytes of binaries, and none of it is needed to run them.
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-  --mount=type=cache,target=/root/go/pkg/mod,sharing=locked \
+  --mount=type=cache,target=/root/go/pkg,sharing=locked \
   export GOBIN=/usr/local/bin \
   && go install "helm.sh/helm/v4/cmd/helm@v${HELM_VERSION}" \
   && go install "sigs.k8s.io/kustomize/kustomize/v5@v${KUSTOMIZE_VERSION}" \

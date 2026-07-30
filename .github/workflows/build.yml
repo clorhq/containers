@@ -38,6 +38,9 @@ jobs:
   base:
     if: ${{ !inputs.data_only && !inputs.merge_data_only }}
     strategy:
+      # One architecture failing must not cancel the other: the surviving job
+      # is what says whether a failure is architecture specific.
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
@@ -229,6 +232,9 @@ jobs:
     needs: merge-base
     if: ${{ !inputs.merge_data_only && always() && (inputs.data_only || needs.merge-base.result == 'success') }}
     strategy:
+      # One architecture failing must not cancel the other: the surviving job
+      # is what says whether a failure is architecture specific.
+      fail-fast: false
       matrix:
         include:
           - arch: amd64

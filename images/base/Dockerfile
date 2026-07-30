@@ -427,7 +427,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
 # gh-dash there starts with no GH_TOKEN because it never reaches the wrapper.
 # The module and build caches are BuildKit cache mounts rather than image
 # content; go install writes roughly two gigabytes into them, and none of it
-# is needed to run the binaries.
+# is needed to run the binaries. Mount the whole of GOPATH/pkg, not just
+# pkg/mod: the checksum database Go maintains lands beside it in pkg/sumdb.
 ARG GOPLS_VERSION="0.21.1"
 ARG DELVE_VERSION="1.7.3"
 ARG GH_DASH_VERSION="4.25.2"
@@ -440,7 +441,7 @@ ARG OSV_SCANNER_VERSION="2.4.0"
 ARG VALE_VERSION="3.15.2"
 ARG DIRENV_VERSION="2.37.1"
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-  --mount=type=cache,target=/root/go/pkg/mod,sharing=locked \
+  --mount=type=cache,target=/root/go/pkg,sharing=locked \
   mkdir --parents /usr/local/lib/clor \
   && GOBIN=/usr/local/lib/clor go install "github.com/dlvhdr/gh-dash/v4@v${GH_DASH_VERSION}" \
   && export GOBIN=/usr/local/bin \
@@ -565,9 +566,9 @@ ENTRYPOINT ["/usr/local/lib/clor/start"]
 FROM base AS test
 COPY --chmod=0755 images/base/tests /usr/local/lib/clor/tests
 # Bash has no long spelling for -c; login mode verifies /etc/profile behavior.
-# TEMPORARY: tracing this chain so a failure names the assertion that failed.
-RUN set -x \
-  && test "${HOME}" = /root \
+# The chain is silent, so a failure reports only an exit code. To find out
+# which assertion failed, prefix it with `set -x &&` and rebuild the stage.
+RUN test "${HOME}" = /root \
   && test "${PWD}" = /root \
   && test "${PATH}" = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   && test "${PLAYWRIGHT_BROWSERS_PATH}" = /root/.cache/ms-playwright \
