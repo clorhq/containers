@@ -518,7 +518,7 @@ RUN mkdir --parents \
 # Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
-ARG CODEX_VERSION="0.145.0"
+ARG CODEX_VERSION="0.146.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
 ARG CLAUDE_VERSION="2.1.220"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \

@@ -114,6 +114,23 @@ clean-looking run is not the same as a complete one.
 Run `./scripts/update` to bump what it can, then review the diff — a bump is a
 real change to the image and should be committed on its own.
 
+### Bump the agent CLIs on every image build
+
+**Before starting any image build, ask the user whether to bump Claude Code and
+Codex to their latest releases.** Assume the answer is yes — say which versions
+you would move to and go ahead unless they say otherwise. Do not silently
+publish an image carrying stale agent CLIs; they are the tools every space is
+actually used through, and they move faster than anything else pinned here.
+
+```bash
+./versions/claude    # -> CLAUDE_VERSION in images/base/Dockerfile
+./versions/codex     # -> CODEX_VERSION in images/base/Dockerfile
+```
+
+Both live in the layer directly above the Clor installer, so a bump rebuilds
+only that layer and the two below it — never the expensive language, browser,
+or Go tooling layers.
+
 Fetching a release asset directly (no installer of its own) goes through
 `installers/verified-github-asset OWNER/REPO TAG AMD64_ASSET ARM64_ASSET`,
 which picks the asset for the build architecture, verifies the digest GitHub
