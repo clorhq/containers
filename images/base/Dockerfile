@@ -565,7 +565,9 @@ ENTRYPOINT ["/usr/local/lib/clor/start"]
 FROM base AS test
 COPY --chmod=0755 images/base/tests /usr/local/lib/clor/tests
 # Bash has no long spelling for -c; login mode verifies /etc/profile behavior.
-RUN test "${HOME}" = /root \
+# TEMPORARY: tracing this chain so a failure names the assertion that failed.
+RUN set -x \
+  && test "${HOME}" = /root \
   && test "${PWD}" = /root \
   && test "${PATH}" = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   && test "${PLAYWRIGHT_BROWSERS_PATH}" = /root/.cache/ms-playwright \
