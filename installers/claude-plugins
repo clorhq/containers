@@ -1,0 +1,74 @@
+#!/bin/bash
+# Install the Claude Code plugins listed in the file passed as $1 for whoever
+# runs this script. Each entry is <plugin>@<marketplace>; a marketplace is
+# resolved to the repository serving it and added once, before the first plugin
+# that comes from it, because a fresh home knows no marketplaces at all.
+#
+# This is the second install in the image that is not version pinned, after the
+# Clor CLI: the marketplace is fetched at build time and resolves each plugin to
+# whatever it points at then. What shipped is recorded in the image at
+# /home/user/.claude/plugins/installed_plugins.json, and nothing busts this
+# layer's cache, so the set only moves when the list or an earlier layer does.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+LIST="$1"
+
+marketplace_repository() {
+    case "$1" in
+        claude-plugins-official) printf 'anthropics/claude-plugins-official\n' ;;
+        *)
+            printf 'claude-plugins: no repository known for marketplace %s\n' \
+                "$1" >&2
+            return 1
+            ;;
+    esac
+}
+
+declare -a PLUGINS=()
+while read -r LINE; do
+    ENTRY="${LINE%%#*}"
+    ENTRY="${ENTRY#"${ENTRY%%[![:space:]]*}"}"
+    ENTRY="${ENTRY%"${ENTRY##*[![:space:]]}"}"
+    if [[ -n "${ENTRY}" ]]; then
+        if [[ ! "${ENTRY}" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ ]]; then
+            printf 'claude-plugins: not a <plugin>@<marketplace> entry: %s\n' \
+                "${ENTRY}" >&2
+            exit 1
+        fi
+        PLUGINS+=("${ENTRY}")
+    fi
+done <"${LIST}"
+
+if ((${#PLUGINS[@]} == 0)); then
+    printf 'claude-plugins: %s lists no plugins\n' "${LIST}" >&2
+    exit 1
+fi
+
+declare -A ADDED_MARKETPLACES=()
+for PLUGIN in "${PLUGINS[@]}"; do
+    MARKETPLACE="${PLUGIN##*@}"
+    if [[ -z "${ADDED_MARKETPLACES[${MARKETPLACE}]:-}" ]]; then
+        # Assign first: a failing command substitution inside the argument list
+        # would otherwise leave the add running with an empty repository.
+        REPOSITORY="$(marketplace_repository "${MARKETPLACE}")"
+        claude plugin marketplace add "${REPOSITORY}"
+        ADDED_MARKETPLACES["${MARKETPLACE}"]=1
+    fi
+    claude plugin install "${PLUGIN}"
+done
+
+# A zero exit says the command ran, not that the plugin ended up enabled with
+# its payload on disk. Assert the end state the space actually depends on.
+for PLUGIN in "${PLUGINS[@]}"; do
+    jq --exit-status --arg plugin "${PLUGIN}" \
+        '.enabledPlugins[$plugin] == true' \
+        "${HOME}/.claude/settings.json" >/dev/null
+    INSTALL_PATH="$(jq --exit-status --raw-output --arg plugin "${PLUGIN}" \
+        '.plugins[$plugin][0].installPath' \
+        "${HOME}/.claude/plugins/installed_plugins.json")"
+    test -d "${INSTALL_PATH}"
+done
+
+printf 'claude-plugins: installed %d plugin(s)\n' "${#PLUGINS[@]}"

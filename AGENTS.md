@@ -81,6 +81,7 @@ curl --fail --silent --show-error --head \
 | `scripts/push` | Multi-arch build and push to `ghcr.io/clorhq` from a laptop |
 | `scripts/update` | Rewrites every `ARG *_VERSION` default to the latest upstream version |
 | `.github/workflows/build.yml` | CI: per-arch native builds pushed by digest, then merged into one tag |
+| `.dockerignore` | Keeps the build context to `images/` and `installers/` |
 
 `images/base` is the root image. Every other image is `FROM ${BASE_IMAGE}` and
 inherits the agents, OS tooling, and base toolchains.
@@ -160,7 +161,9 @@ For any tool that ships behind a wrapper, assert the full path:
 && test "$(command -v gh-dash)" = /usr/local/bin/gh-dash \
 ```
 
-and delete the build-time copy once it has been installed to its final home.
+and never create a build-time copy in the first place — `GOBIN` installs
+straight to the final home, and Base asserts `~/go/bin` does not exist. See
+"Image size".
 
 ## CI
 
@@ -184,6 +187,13 @@ digests), which is why the concurrency group varies by mode.
 `[skip ci]` in a commit message skips the build entirely — the tree can be
 ahead of what `:latest` contains. Use it for docs-only commits so they don't
 kick off a full rebuild.
+
+Each job restores a GitHub Actions layer cache with `cache-from` and writes it
+back with `cache-to` from **one** step only: the `test` build. The `test` stage
+is `FROM base` just as `production` is, so its cache is a superset of what the
+push step needs, and a second writer on the same scope would just race the
+first for the key. A `cache-from` with no matching `cache-to` anywhere is dead
+weight — it silently restores nothing.
 
 ## Shell style
 
@@ -219,12 +229,82 @@ uid 1000. The installers themselves are bind-mounted read-only from
   published image.
 - `CLOR_BUILD_NONCE` deliberately busts the cache for the layer that installs
   the unpinned latest Clor build. It is the one intentional exception to the
-  everything-is-pinned rule, and the build asserts it is non-empty.
+  everything-is-pinned rule, and the build asserts it is non-empty. That layer
+  holds the Clor installer and nothing else — see "Image size" below.
 - Remote assets fetched by URL are pinned by checksum, either through
   `installers/verified-github-asset` or an explicit `sha256sum --check`.
 - Patches to code-server's own files (the GitHub auth provider, `product.json`)
   sit next to a version assertion or checksum so an upstream bump fails loudly
   instead of silently no-opping.
+
+## Image size
+
+Every byte in a layer is a byte every node pulls before a space can start, so
+size is a property to defend, not an afterthought. Four invariants carry most
+of it:
+
+- **Build caches never ship.** `go install` writes far more into `GOCACHE` and
+  `GOMODCACHE` than it produces in binaries — about 2 GB against 133 MB in the
+  Base image alone. Every `go install` therefore runs under
+
+  ```dockerfile
+  RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+      --mount=type=cache,target=/root/go/pkg/mod,sharing=locked \
+  ```
+
+  and the `test` stage asserts no regular file survives under `/root/go`,
+  `/root/.cache/go-build`, or the same paths under `/home/user`. npm's `~/.npm`
+  is the same problem with a different name; each npm layer ends with
+  `npm cache clean --force`.
+- **`GOBIN` writes to the final location.** Nothing is installed into a GOPATH
+  `bin` and copied afterwards — that leaves two copies of every binary in two
+  layers, and the leftover is exactly what shadowed the `gh-dash` wrapper. Base
+  asserts `test ! -e /home/user/go/bin` at build time.
+- **The nonce layer stays last and stays alone.** `CLOR_BUILD_NONCE`
+  invalidates whatever layer it appears in, and *that* layer is re-pulled by
+  every node on every build. Keep the pinned agent CLIs in the layer above it,
+  so the per-build delta is the Clor installer rather than a few hundred
+  megabytes of unchanged binaries.
+- **One browser stack.** Chromium and Firefox come from Playwright; nothing is
+  installed from apt. `/usr/local/bin/chromium` is a wrapper that adds
+  `--no-sandbox` and execs `/usr/local/lib/clor/chromium`, a symlink resolved
+  at build time to Playwright's versioned build. Because the apt package is
+  gone, so is its desktop entry — the Desktop image ships
+  `images/desktop/applications/chromium.desktop` itself, and the fonts that
+  came in as `chromium-common` dependencies are now requested by name in the
+  apt layer. WebKit is not installed; a space that needs it runs
+  `playwright install webkit`.
+
+Published layers are **zstd**, not gzip — set in the buildx `outputs:` in CI
+and in `scripts/push`, with `force-compression=true` so an image is never a mix
+of the two. It is both smaller on the wire and much faster to extract, which is
+on the critical path on a plain Docker node. It also raises the floor on what a
+node can run: **Docker Engine 23.0 or newer**. Do not remove
+`oci-mediatypes=true` — zstd layers require OCI media types.
+
+When measuring, attribute layers to the `RUN` that produced them rather than
+reading totals: fetch the manifest, fetch the config blob, and zip
+`.history[] | select(.empty_layer != true)` against `.layers[]`.
+
+### Claude Code plugins
+
+`images/base/claude-plugins` is the list of plugins every space gets, one
+`<plugin>@<marketplace>` per line. `installers/claude-plugins` adds each
+marketplace (a fresh home knows none, so `claude plugin install` alone fails),
+installs the plugins as the space user, and asserts each one ends up enabled in
+`~/.claude/settings.json` with its payload on disk;
+`images/base/tests/claude-plugins` re-checks that against the finished image.
+
+Two things to know before adding a line. **It is not free** — the payload ships
+in a layer every node pulls, and `chrome-devtools-mcp` alone is 441 MB on disk
+and 74 MB compressed. **It is not pinned** — the marketplace is fetched at build
+time, making this the second exception to the everything-is-pinned rule after
+the Clor CLI. Nothing busts this layer's cache, so the set stays put until the
+list or an earlier layer changes; what actually shipped is recorded in the image
+at `/home/user/.claude/plugins/installed_plugins.json`.
+
+The layer sits after the Claude CLI it configures and **before** the Clor
+layer, so the nonce does not re-push these payloads on every build.
 
 ### code-server GitHub authentication
 

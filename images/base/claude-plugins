@@ -1,0 +1,12 @@
+# Claude Code plugins installed for the space user when the image is built, so
+# a space has them without a first-run download. One <plugin>@<marketplace>
+# entry per line; blank lines and # comments are ignored.
+#
+# Adding a line is a real change to the image: the payload ships in a layer
+# every node pulls. chrome-devtools-mcp alone is 441 MB on disk, 74 MB
+# compressed, so weigh what a plugin costs against how many spaces use it.
+# `claude plugin install <plugin>@<marketplace>` inside a space is always
+# available for the ones that do not belong here.
+
+chrome-devtools-mcp@claude-plugins-official
+gopls-lsp@claude-plugins-official

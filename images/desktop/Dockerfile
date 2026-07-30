@@ -18,15 +18,16 @@ RUN apt-get update && apt-get install --yes \
   xfce4-terminal \
   && rm --recursive --force /var/lib/apt/lists/*
 
-# Debian's desktop entry bypasses PATH, so point it at the container-safe
-# Chromium wrapper explicitly.
-RUN test "$(grep --fixed-strings --count \
-    'Exec=/usr/bin/chromium %U' /usr/share/applications/chromium.desktop)" = 1 \
-  && sed --in-place \
-    's#Exec=/usr/bin/chromium %U#Exec=/usr/local/bin/chromium %U#' \
-    /usr/share/applications/chromium.desktop \
-  && grep --fixed-strings --line-regexp \
-    'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop
+# The base image installs no Chromium from apt, so no package supplies a
+# desktop entry for the XFCE menu. Ship one, pointed at the container-safe
+# wrapper rather than at a bare binary: a desktop entry bypasses PATH, and the
+# wrapper is what supplies --no-sandbox and resolves Playwright's build.
+COPY --chmod=0644 images/desktop/applications/chromium.desktop \
+  /usr/share/applications/chromium.desktop
+RUN grep --fixed-strings --line-regexp \
+    'Exec=/usr/local/bin/chromium %U' /usr/share/applications/chromium.desktop \
+  && test -x /usr/local/bin/chromium \
+  && test -x /usr/local/lib/clor/chromium
 
 COPY --chmod=0755 images/desktop/bin/desktop-vnc /usr/local/bin/desktop-vnc
 COPY --chmod=0755 images/desktop/bin/desktop-web /usr/local/bin/desktop-web

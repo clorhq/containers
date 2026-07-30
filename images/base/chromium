@@ -1,2 +1,4 @@
 #!/bin/bash
-exec /usr/bin/chromium --no-sandbox "$@"
+# Playwright's Chromium build is the only Chromium in the image; the symlink
+# beside this wrapper is resolved to its versioned directory at build time.
+exec /usr/local/lib/clor/chromium --no-sandbox "$@"

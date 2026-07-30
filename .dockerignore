@@ -1,0 +1,9 @@
+# Keep the build context to what the Dockerfiles actually read. Everything
+# else is host-side tooling, documentation, or version control state, and
+# uploading it to the builder only slows every build down.
+.git
+.github
+.gitignore
+scripts
+versions
+*.md

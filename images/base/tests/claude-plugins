@@ -1,0 +1,34 @@
+#!/bin/bash
+# Assert every plugin the image ships is installed for the space user and
+# enabled in that user's settings, against the finished image rather than the
+# installer's own view of what it just did. Runs as root; the space user's
+# Claude state is world readable.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+LIST="${1:-/usr/local/lib/clor/claude-plugins}"
+SETTINGS="/home/user/.claude/settings.json"
+INVENTORY="/home/user/.claude/plugins/installed_plugins.json"
+
+test -s "${LIST}"
+
+COUNT=0
+while read -r LINE; do
+    ENTRY="${LINE%%#*}"
+    ENTRY="${ENTRY#"${ENTRY%%[![:space:]]*}"}"
+    ENTRY="${ENTRY%"${ENTRY##*[![:space:]]}"}"
+    if [[ -n "${ENTRY}" ]]; then
+        jq --exit-status --arg plugin "${ENTRY}" \
+            '.enabledPlugins[$plugin] == true' "${SETTINGS}" >/dev/null
+        INSTALL_PATH="$(jq --exit-status --raw-output --arg plugin "${ENTRY}" \
+            '.plugins[$plugin][0].installPath' "${INVENTORY}")"
+        test -d "${INSTALL_PATH}"
+        # The space user has to own what it is expected to run and update.
+        test "$(stat --format='%U' "${INSTALL_PATH}")" = user
+        COUNT=$((COUNT + 1))
+    fi
+done <"${LIST}"
+
+test "${COUNT}" -gt 0
+printf 'claude-plugins test: %d plugin(s) installed and enabled\n' "${COUNT}"

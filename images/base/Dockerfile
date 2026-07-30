@@ -8,7 +8,11 @@ ENV COLORTERM="truecolor"
 ENV LANG="C.UTF-8"
 ENV LC_ALL="C.UTF-8"
 
-# Install system tools.
+# Install system tools. No browser is installed from apt: the image already
+# carries Playwright's own Chromium and Firefox builds, and the wrapper on
+# PATH at /usr/local/bin/chromium runs the Playwright Chromium. The fonts came
+# in as dependencies of those packages, and a browser with no fonts renders
+# every screenshot as boxes, so they are now requested by name.
 RUN apt-get update && apt-get install --yes \
   bubblewrap \
   ca-certificates \
@@ -94,8 +98,9 @@ RUN apt-get update && apt-get install --yes \
   shellcheck \
   shfmt \
   xvfb \
-  firefox-esr \
-  chromium \
+  fonts-liberation \
+  fonts-dejavu-core \
+  fonts-noto-color-emoji \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then apt-get install --yes ltrace; fi \
   && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
@@ -348,41 +353,15 @@ RUN code-server --config /dev/null --force \
   --install-extension "golang.go@${GO_EXTENSION_VERSION}" \
   --install-extension "redhat.vscode-yaml@${YAML_EXTENSION_VERSION}"
 
-# Install Go language tooling for the space user.
-ARG GOPLS_VERSION="0.21.1"
-RUN go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}"
-
-ARG DELVE_VERSION="1.7.3"
-RUN go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}"
-
-# Install pinned Go-native developer tools into the system path. gh-dash is
-# kept behind its authentication wrapper, just as the real gh binary is.
-ARG GH_DASH_VERSION="4.25.2"
-ARG YQ_VERSION="4.53.3"
-ARG GRPCURL_VERSION="1.9.3"
-ARG GRPCUI_VERSION="1.5.2"
-ARG ACTIONLINT_VERSION="1.7.12"
-ARG GITLEAKS_VERSION="8.30.1"
-ARG OSV_SCANNER_VERSION="2.4.0"
-ARG VALE_VERSION="3.15.2"
-ARG DIRENV_VERSION="2.37.1"
-RUN go install "github.com/dlvhdr/gh-dash/v4@v${GH_DASH_VERSION}" \
-  && go install "github.com/mikefarah/yq/v4@v${YQ_VERSION}" \
-  && go install "github.com/fullstorydev/grpcurl/cmd/grpcurl@v${GRPCURL_VERSION}" \
-  && go install "github.com/fullstorydev/grpcui/cmd/grpcui@v${GRPCUI_VERSION}" \
-  && go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}" \
-  && go install "github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}" \
-  && go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@v${OSV_SCANNER_VERSION}" \
-  && go install "github.com/errata-ai/vale/v3/cmd/vale@v${VALE_VERSION}" \
-  && go install "github.com/direnv/direnv/v2@v${DIRENV_VERSION}"
-
 # Configure per-user npm globals.
 RUN mkdir --parents /home/user/.npm-global \
   && npm config set prefix /home/user/.npm-global
 
-# Install Redocly CLI.
+# Install Redocly CLI. npm keeps a second copy of every package it installs in
+# ~/.npm; clear it in the same layer so the tarballs never reach the image.
 ARG REDOCLY_VERSION="2.30.5"
-RUN npm install --global "@redocly/cli@${REDOCLY_VERSION}"
+RUN npm install --global "@redocly/cli@${REDOCLY_VERSION}" \
+  && npm cache clean --force
 
 # Posting is isolated from project Python environments while its shim stays on
 # the ordinary space PATH.
@@ -394,7 +373,8 @@ ARG PNPM_VERSION="11.14.0"
 ARG YARN_VERSION="4.17.1"
 RUN corepack enable --install-directory /home/user/.npm-global/bin \
   && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
-  && corepack prepare "yarn@${YARN_VERSION}" --activate
+  && corepack prepare "yarn@${YARN_VERSION}" --activate \
+  && npm cache clean --force
 
 # Install TypeScript developer tooling.
 # Version source: https://registry.npmjs.org/typescript/latest
@@ -404,19 +384,21 @@ RUN npm install --global \
   "typescript@${TYPESCRIPT_VERSION}" \
   "tsx@${TSX_VERSION}" \
   eslint \
-  prettier
+  prettier \
+  && npm cache clean --force
 
-# Install Playwright and the complete browser stack.
+# Install Playwright and its browsers.
 # Version source: https://registry.npmjs.org/@playwright/test/latest
 ARG PLAYWRIGHT_VERSION="1.61.1"
-RUN npm install --global "@playwright/test@${PLAYWRIGHT_VERSION}"
+RUN npm install --global "@playwright/test@${PLAYWRIGHT_VERSION}" \
+  && npm cache clean --force
 
 USER root
 # Docker does not recalculate HOME or PATH when USER changes.
 ENV HOME="/root"
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
-RUN /home/user/.npm-global/bin/playwright install-deps chromium firefox webkit \
+RUN /home/user/.npm-global/bin/playwright install-deps chromium firefox \
   && rm --recursive --force /var/lib/apt/lists/*
 
 USER user
@@ -424,7 +406,10 @@ USER user
 ENV HOME="/home/user"
 ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
-RUN playwright install chromium firefox webkit
+# WebKit is not installed: it is the only browser nothing in a space reaches
+# for by default, and it costs more than the other two combined. A space that
+# needs it runs `playwright install webkit`.
+RUN playwright install chromium firefox
 
 ENV DISABLE_AUTOUPDATER="1"
 COPY --chmod=0755 images/base/chromium /usr/local/bin/chromium
@@ -435,15 +420,50 @@ USER root
 ENV HOME="/root"
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
-# Drop the go install copy of gh-dash once it is behind the wrapper: the space
-# PATH puts /home/user/go/bin ahead of /usr/local/bin, so leaving it there
-# shadows the wrapper and gh-dash starts with no GH_TOKEN. The other tools need
-# no wrapper, so their go install copies are harmless.
-RUN install --mode=0755 /home/user/go/bin/gh-dash /usr/local/lib/clor/gh-dash \
-  && rm /home/user/go/bin/gh-dash \
-  && for tool in yq grpcurl grpcui actionlint gitleaks osv-scanner vale direnv; do \
-    install --mode=0755 "/home/user/go/bin/${tool}" "/usr/local/bin/${tool}"; \
-  done
+# Install the Go language server, debugger, and pinned Go-native developer
+# tools. GOBIN puts every binary straight into its final location, so nothing
+# is left behind in a GOPATH bin directory to be copied or shadow a wrapper:
+# the space PATH puts /home/user/go/bin ahead of /usr/local/bin, and a stray
+# gh-dash there starts with no GH_TOKEN because it never reaches the wrapper.
+# The module and build caches are BuildKit cache mounts rather than image
+# content; go install writes roughly two gigabytes into them, and none of it
+# is needed to run the binaries.
+ARG GOPLS_VERSION="0.21.1"
+ARG DELVE_VERSION="1.7.3"
+ARG GH_DASH_VERSION="4.25.2"
+ARG YQ_VERSION="4.53.3"
+ARG GRPCURL_VERSION="1.9.3"
+ARG GRPCUI_VERSION="1.5.2"
+ARG ACTIONLINT_VERSION="1.7.12"
+ARG GITLEAKS_VERSION="8.30.1"
+ARG OSV_SCANNER_VERSION="2.4.0"
+ARG VALE_VERSION="3.15.2"
+ARG DIRENV_VERSION="2.37.1"
+RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+  --mount=type=cache,target=/root/go/pkg/mod,sharing=locked \
+  mkdir --parents /usr/local/lib/clor \
+  && GOBIN=/usr/local/lib/clor go install "github.com/dlvhdr/gh-dash/v4@v${GH_DASH_VERSION}" \
+  && export GOBIN=/usr/local/bin \
+  && go install "golang.org/x/tools/gopls@v${GOPLS_VERSION}" \
+  && go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" \
+  && go install "github.com/mikefarah/yq/v4@v${YQ_VERSION}" \
+  && go install "github.com/fullstorydev/grpcurl/cmd/grpcurl@v${GRPCURL_VERSION}" \
+  && go install "github.com/fullstorydev/grpcui/cmd/grpcui@v${GRPCUI_VERSION}" \
+  && go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}" \
+  && go install "github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}" \
+  && go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@v${OSV_SCANNER_VERSION}" \
+  && go install "github.com/errata-ai/vale/v3/cmd/vale@v${VALE_VERSION}" \
+  && go install "github.com/direnv/direnv/v2@v${DIRENV_VERSION}" \
+  && test ! -e /home/user/go/bin
+# Resolve Playwright's Chromium once, at build time, so the wrapper on PATH
+# does not have to guess at the browser revision in its directory name. The
+# find fails the build if a Playwright bump ever changes that layout.
+RUN chromium_binary="$(find /home/user/.cache/ms-playwright \
+    -mindepth 3 -maxdepth 3 -type f -executable \
+    -path '*/chromium-*/chrome-linux/chrome' -print -quit)" \
+  && test -n "${chromium_binary}" \
+  && ln --symbolic "${chromium_binary}" /usr/local/lib/clor/chromium \
+  && test -x /usr/local/lib/clor/chromium
 # Adapt only this exact code-server release's built-in GitHub provider. The
 # original provider remains responsible for normal and GitHub Enterprise auth.
 RUN test "${VSCODE_VERSION}" = "4.129.0" \
@@ -490,20 +510,39 @@ RUN mkdir --parents \
   /var/lib/clor \
   /var/log/clor
 
-# Keep frequently updated agent CLIs in the final filesystem layer so rebuilds
+# Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.145.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
 ARG CLAUDE_VERSION="2.1.220"
-# The build entrypoints supply a unique value so the unpinned Clor installer
-# runs on every image build without invalidating any earlier layer.
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
+  gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
+  && gosu user env HOME=/home/user /installers/claude "${CLAUDE_VERSION}"
+
+# Install the Claude Code plugins every space gets by default, so no space pays
+# a first-run download for them. The list is the file being copied; the
+# installer resolves each marketplace and asserts the plugin ends up enabled.
+# This layer follows the Claude CLI it configures and precedes the Clor layer,
+# whose nonce would otherwise re-push these payloads on every build.
+COPY --chmod=0644 images/base/claude-plugins /usr/local/lib/clor/claude-plugins
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  gosu user env \
+    HOME=/home/user \
+    PATH="/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+    /installers/claude-plugins /usr/local/lib/clor/claude-plugins
+
+# The Clor CLI is the one unpinned install in the image, and the build
+# entrypoints supply a unique nonce so it runs on every build. Keep it alone in
+# the last layer: the nonce invalidates whatever layer it sits in, and every
+# node then re-pulls that layer on every build even when nothing else changed.
+# Bundling the pinned agents above with it would make that a 200 MB download
+# per build instead of the CLI's own handful of megabytes.
 ARG CLOR_BUILD_NONCE
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
   test -n "${CLOR_BUILD_NONCE}" \
-  && gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
-  && gosu user env HOME=/home/user /installers/claude "${CLAUDE_VERSION}" \
   && curl --fail --silent --show-error --location \
     --output /downloads/clor-install.sh https://clor.com/install.sh \
   && gosu user env \
@@ -577,6 +616,21 @@ RUN test "${HOME}" = /root \
     xvfb-run \
     zoxide \
     >/dev/null \
+  && for tool in actionlint direnv dlv gitleaks gopls grpcui grpcurl \
+    osv-scanner vale yq; do \
+    test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
+  done \
+  && test -x /usr/local/lib/clor/gh-dash \
+  && test ! -e /home/user/go/bin \
+  && test -z "$(find /root/go /root/.cache/go-build /home/user/go \
+    /home/user/.cache/go-build -type f -print -quit 2>/dev/null)" \
+  && test ! -e /usr/bin/chromium \
+  && test ! -e /usr/bin/firefox-esr \
+  && case "$(readlink /usr/local/lib/clor/chromium)" in \
+    /home/user/.cache/ms-playwright/chromium-*/chrome-linux/chrome) ;; \
+    *) exit 1 ;; \
+    esac \
+  && test -x /usr/local/lib/clor/chromium \
   && gosu user env \
     HOME=/home/user \
     PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:${PATH}" \
@@ -607,6 +661,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
@@ -636,6 +691,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
@@ -657,6 +713,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
+    /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
@@ -669,6 +726,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
     /etc/profile.d/clor-space-tools.sh \
   && node /usr/local/lib/clor/tests/github-authentication.js \
+  && /usr/local/lib/clor/tests/claude-plugins \
   && /usr/local/lib/clor/tests/clor-node-app \
   && /usr/local/lib/clor/tests/clor-api-workbench \
   && /usr/local/lib/clor/tests/gh \

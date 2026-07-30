@@ -3,7 +3,6 @@
 const {
     chromium,
     firefox,
-    webkit,
 } = require("/home/user/.npm-global/lib/node_modules/@playwright/test");
 
 async function verifyBrowser(name, browserType, headless, launchOptions = {}) {
@@ -34,9 +33,9 @@ async function main() {
         return;
     }
 
+    // WebKit is deliberately not installed; see images/base/Dockerfile.
     await verifyBrowser("Chromium", chromium, true);
     await verifyBrowser("Firefox", firefox, true);
-    await verifyBrowser("WebKit", webkit, true);
 }
 
 main().catch((error) => {

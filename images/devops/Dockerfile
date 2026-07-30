@@ -122,16 +122,22 @@ ARG AGE_VERSION="1.3.1"
 ARG COSIGN_VERSION="3.1.2"
 ARG CRANE_VERSION="0.21.7"
 ARG ORAS_VERSION="1.3.3"
-RUN GOBIN=/usr/local/bin go install "helm.sh/helm/v4/cmd/helm@v${HELM_VERSION}" \
-  && GOBIN=/usr/local/bin go install "sigs.k8s.io/kustomize/kustomize/v5@v${KUSTOMIZE_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/derailed/k9s@v${K9S_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/stern/stern@v${STERN_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/getsops/sops/v3/cmd/sops@v${SOPS_VERSION}" \
-  && GOBIN=/usr/local/bin go install "filippo.io/age/cmd/age@v${AGE_VERSION}" \
-  && GOBIN=/usr/local/bin go install "filippo.io/age/cmd/age-keygen@v${AGE_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/sigstore/cosign/v3/cmd/cosign@v${COSIGN_VERSION}" \
-  && GOBIN=/usr/local/bin go install "github.com/google/go-containerregistry/cmd/crane@v${CRANE_VERSION}" \
-  && GOBIN=/usr/local/bin go install "oras.land/oras/cmd/oras@v${ORAS_VERSION}"
+# The module and build caches are BuildKit cache mounts, not image content:
+# these ten builds write about three gigabytes into them for roughly a hundred
+# megabytes of binaries, and none of it is needed to run them.
+RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+  --mount=type=cache,target=/root/go/pkg/mod,sharing=locked \
+  export GOBIN=/usr/local/bin \
+  && go install "helm.sh/helm/v4/cmd/helm@v${HELM_VERSION}" \
+  && go install "sigs.k8s.io/kustomize/kustomize/v5@v${KUSTOMIZE_VERSION}" \
+  && go install "github.com/derailed/k9s@v${K9S_VERSION}" \
+  && go install "github.com/stern/stern@v${STERN_VERSION}" \
+  && go install "github.com/getsops/sops/v3/cmd/sops@v${SOPS_VERSION}" \
+  && go install "filippo.io/age/cmd/age@v${AGE_VERSION}" \
+  && go install "filippo.io/age/cmd/age-keygen@v${AGE_VERSION}" \
+  && go install "github.com/sigstore/cosign/v3/cmd/cosign@v${COSIGN_VERSION}" \
+  && go install "github.com/google/go-containerregistry/cmd/crane@v${CRANE_VERSION}" \
+  && go install "oras.land/oras/cmd/oras@v${ORAS_VERSION}"
 
 # OpenTofu's module uses replace directives and is intentionally not
 # installable through `go install module@version`. Use its provider release
@@ -179,6 +185,12 @@ RUN command -v \
     age age-keygen ansible aws az cosign crane doctl firebase fly gcloud helm \
     heroku k9s kubectl kustomize netlify oras pulumi railway render sops stern \
     tofu vercel wrangler >/dev/null \
+  && for tool in age age-keygen cosign crane helm k9s kustomize oras sops \
+    stern; do \
+    test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
+  done \
+  && test -z "$(find /root/go /root/.cache/go-build /home/user/go \
+    /home/user/.cache/go-build -type f -print -quit 2>/dev/null)" \
   && bash -n /usr/local/bin/clor-deploy \
     /usr/local/lib/clor/clor-deploy-node-tool \
     /usr/local/lib/clor/devops-tests/clor-deploy-node-tool \

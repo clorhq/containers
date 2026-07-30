@@ -18,8 +18,14 @@ CLOR_BUILD_NONCE="${CLOR_BUILD_NONCE:-$(date +%s)-$$}"
 
 BASE_IMAGE="${REGISTRY}/software-development-base"
 
+# Layers ship zstd rather than gzip, matching what CI publishes: smaller on
+# the wire and markedly faster to decompress on the node creating a space.
+# force-compression recompresses anything that arrives already gzipped, so an
+# image is never a mix of the two. Pulling these needs Docker Engine 23.0+.
+PUSH_OUTPUT="type=registry,compression=zstd,oci-mediatypes=true,force-compression=true"
+
 echo "==> building and pushing ${BASE_IMAGE}"
-docker buildx build --push \
+docker buildx build --output "${PUSH_OUTPUT}" \
     --platform "${PLATFORMS}" \
     --tag "${BASE_IMAGE}:latest" \
     --tag "${BASE_IMAGE}:${GIT_SHA}" \
@@ -31,7 +37,7 @@ docker buildx build --push \
 for VARIANT in desktop devops; do
     IMAGE="${REGISTRY}/software-development-${VARIANT}"
     echo "==> building and pushing ${IMAGE}"
-    docker buildx build --push \
+    docker buildx build --output "${PUSH_OUTPUT}" \
         --platform "${PLATFORMS}" \
         --tag "${IMAGE}:latest" \
         --tag "${IMAGE}:${GIT_SHA}" \
@@ -43,7 +49,7 @@ done
 
 DATA_IMAGE="${REGISTRY}/software-development-data"
 echo "==> building and pushing ${DATA_IMAGE}"
-docker buildx build --push \
+docker buildx build --output "${PUSH_OUTPUT}" \
     --platform "${PLATFORMS}" \
     --tag "${DATA_IMAGE}:latest" \
     --tag "${DATA_IMAGE}:${GIT_SHA}" \

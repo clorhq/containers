@@ -23,3 +23,11 @@ tar --extract --xz \
     --directory=/usr/local \
     --strip-components=1 \
     --file="${ARCHIVE}"
+
+# The C++ headers are only needed to compile native addons from source, and
+# node-gyp downloads its own copy for the running version rather than reading
+# these. The docs and the SystemTap probes have no consumer in a container.
+rm --recursive --force \
+    /usr/local/include/node \
+    /usr/local/share/doc/node \
+    /usr/local/share/systemtap
