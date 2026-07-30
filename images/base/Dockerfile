@@ -458,10 +458,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
   && test ! -e /home/user/go/bin
 # Resolve Playwright's Chromium once, at build time, so the wrapper on PATH
 # does not have to guess at the browser revision in its directory name. The
-# find fails the build if a Playwright bump ever changes that layout.
+# directory below that is architecture specific -- chrome-linux64 on amd64,
+# chrome-linux on arm64 -- so match the binary by name and keep the parent a
+# wildcard. chromium_headless_shell-* is excluded twice over: its directory
+# does not start with "chromium-" and its binary is not named chrome. The find
+# fails the build if a Playwright bump ever changes that layout again.
 RUN chromium_binary="$(find /home/user/.cache/ms-playwright \
     -mindepth 3 -maxdepth 3 -type f -executable \
-    -path '*/chromium-*/chrome-linux/chrome' -print -quit)" \
+    -name chrome -path '*/chromium-*/*' -print -quit)" \
   && test -n "${chromium_binary}" \
   && ln --symbolic "${chromium_binary}" /usr/local/lib/clor/chromium \
   && test -x /usr/local/lib/clor/chromium
@@ -630,7 +634,7 @@ RUN test "${HOME}" = /root \
   && test ! -e /usr/bin/chromium \
   && test ! -e /usr/bin/firefox-esr \
   && case "$(readlink /usr/local/lib/clor/chromium)" in \
-    /home/user/.cache/ms-playwright/chromium-*/chrome-linux/chrome) ;; \
+    /home/user/.cache/ms-playwright/chromium-*/chrome-linux*/chrome) ;; \
     *) exit 1 ;; \
     esac \
   && test -x /usr/local/lib/clor/chromium \
