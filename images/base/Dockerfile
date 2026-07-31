@@ -145,14 +145,14 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
 
 # Install GitHub CLI.
 # Version source: https://github.com/cli/cli/releases/latest
-ARG GITHUB_VERSION="2.96.0"
+ARG GITHUB_VERSION="2.97.0"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/github "${GITHUB_VERSION}"
 
 # Install Node.js
 # Version source: https://nodejs.org/dist/index.json (latest entry with an LTS name)
-ARG NODE_VERSION="24.18.0"
+ARG NODE_VERSION="24.18.1"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/node "${NODE_VERSION}"
@@ -165,13 +165,13 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   /installers/bun "${BUN_VERSION}"
 
 # Version source: https://api.github.com/repos/denoland/deno/releases/latest
-ARG DENO_VERSION="2.9.2"
+ARG DENO_VERSION="2.9.4"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/deno "${DENO_VERSION}"
 
 # Tailwind CSS standalone CLI.
-ARG TAILWINDCSS_VERSION="4.1.13"
+ARG TAILWINDCSS_VERSION="4.3.3"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/tailwindcss "${TAILWINDCSS_VERSION}"
@@ -190,7 +190,7 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   /installers/golangci-lint "${GOLANGCI_LINT_VERSION}"
 
 # Install uv system-wide.
-ARG UV_VERSION="0.11.28"
+ARG UV_VERSION="0.12.1"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/uv "${UV_VERSION}"
@@ -359,7 +359,7 @@ RUN mkdir --parents /home/user/.npm-global \
 
 # Install Redocly CLI. npm keeps a second copy of every package it installs in
 # ~/.npm; clear it in the same layer so the tarballs never reach the image.
-ARG REDOCLY_VERSION="2.30.5"
+ARG REDOCLY_VERSION="2.43.2"
 RUN npm install --global "@redocly/cli@${REDOCLY_VERSION}" \
   && npm cache clean --force
 
@@ -369,8 +369,8 @@ ARG POSTING_VERSION="2.10.0"
 RUN uv tool install "posting==${POSTING_VERSION}"
 
 # Install pnpm and Yarn.
-ARG PNPM_VERSION="11.14.0"
-ARG YARN_VERSION="4.17.1"
+ARG PNPM_VERSION="11.18.0"
+ARG YARN_VERSION="4.18.0"
 RUN corepack enable --install-directory /home/user/.npm-global/bin \
   && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
   && corepack prepare "yarn@${YARN_VERSION}" --activate \
@@ -389,7 +389,7 @@ RUN npm install --global \
 
 # Install Playwright and its browsers.
 # Version source: https://registry.npmjs.org/@playwright/test/latest
-ARG PLAYWRIGHT_VERSION="1.61.1"
+ARG PLAYWRIGHT_VERSION="1.62.1"
 RUN npm install --global "@playwright/test@${PLAYWRIGHT_VERSION}" \
   && npm cache clean --force
 
@@ -429,8 +429,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
 # content; go install writes roughly two gigabytes into them, and none of it
 # is needed to run the binaries. Mount the whole of GOPATH/pkg, not just
 # pkg/mod: the checksum database Go maintains lands beside it in pkg/sumdb.
-ARG GOPLS_VERSION="0.21.1"
-ARG DELVE_VERSION="1.7.3"
+ARG GOPLS_VERSION="0.23.0"
+ARG DELVE_VERSION="1.27.0"
 ARG GH_DASH_VERSION="4.25.2"
 ARG YQ_VERSION="4.53.3"
 ARG GRPCURL_VERSION="1.9.3"

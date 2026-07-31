@@ -14,7 +14,7 @@ ENV PATH="/home/user/.local/bin:/home/user/go/bin:/home/user/.npm-global/bin:/us
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/user/.cache/ms-playwright"
 WORKDIR /home/user
 # Version source: https://static.rust-lang.org/dist/channel-rust-stable.toml
-ARG RUST_VERSION="1.97.0"
+ARG RUST_VERSION="1.97.1"
 RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
     https://sh.rustup.rs \
   | sh -s -- -y --profile minimal --no-modify-path --default-toolchain "${RUST_VERSION}" \
