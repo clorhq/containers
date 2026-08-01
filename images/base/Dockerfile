@@ -126,11 +126,6 @@ RUN apt-get update && apt-get install --yes \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
 
-# Bookworm's tmux predates the csi-u format required for Codex to distinguish
-# modified keys safely. Keep the apt package for its runtime dependencies and
-# replace only the binary with the pinned upstream build.
-COPY --from=tmux-builder /out/tmux /usr/local/bin/tmux
-
 # Install complete upstream distributions for tools where Debian Bookworm is
 # substantially behind. The shared installer verifies GitHub's published
 # digest for the exact architecture-specific release asset.
@@ -341,9 +336,6 @@ RUN groupadd \
 COPY --chmod=0644 images/base/profile.d/space-tools.sh \
   /etc/profile.d/clor-space-tools.sh
 
-# System-wide so both root and the space user get agent-friendly tmux defaults.
-COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
-
 USER user
 ENV HOME="/home/user"
 WORKDIR /home/user
@@ -539,6 +531,13 @@ RUN mkdir --parents \
   /etc/clor/services \
   /var/lib/clor \
   /var/log/clor
+
+# Bookworm's tmux predates the csi-u format required for Codex to distinguish
+# modified keys safely. Keep the apt package for its runtime dependencies and
+# replace only the binary with the pinned upstream build. Install the matching
+# agent-friendly config system-wide for both root and the space user.
+COPY --from=tmux-builder /out/tmux /usr/local/bin/tmux
+COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 
 # Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
