@@ -1,0 +1,25 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+INSTALLER_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUTPUT_DIRECTORY="${TMUX_OUTPUT_DIRECTORY:-/out}"
+ASSET="tmux-${VERSION}.tar.gz"
+ARCHIVE="$(
+    "${INSTALLER_DIRECTORY}/verified-github-asset" \
+        tmux/tmux "${VERSION}" "${ASSET}" "${ASSET}"
+)"
+BUILD_DIRECTORY="$(mktemp --directory)"
+
+trap 'rm --recursive --force "${BUILD_DIRECTORY}"' EXIT
+tar --extract --gzip \
+    --directory="${BUILD_DIRECTORY}" \
+    --file="${ARCHIVE}"
+cd "${BUILD_DIRECTORY}/tmux-${VERSION}"
+./configure --prefix=/usr/local
+make --jobs="$(getconf _NPROCESSORS_ONLN)"
+install --directory --mode=0755 "${OUTPUT_DIRECTORY}"
+install --mode=0755 tmux "${OUTPUT_DIRECTORY}/tmux"
+strip --strip-unneeded "${OUTPUT_DIRECTORY}/tmux"

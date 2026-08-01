@@ -1,4 +1,24 @@
 ARG OS_IMAGE="debian:bookworm-slim"
+# Version source: https://github.com/tmux/tmux/releases/latest
+ARG TMUX_VERSION="3.7b"
+
+FROM ${OS_IMAGE} AS tmux-builder
+
+RUN apt-get update && apt-get install --yes \
+  bison \
+  build-essential \
+  ca-certificates \
+  curl \
+  jq \
+  libevent-dev \
+  libncurses-dev \
+  pkg-config \
+  && rm --recursive --force /var/lib/apt/lists/*
+
+ARG TMUX_VERSION
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/tmux "${TMUX_VERSION}"
 
 FROM ${OS_IMAGE} AS base
 
@@ -105,6 +125,11 @@ RUN apt-get update && apt-get install --yes \
   && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
+
+# Bookworm's tmux predates the csi-u format required for Codex to distinguish
+# modified keys safely. Keep the apt package for its runtime dependencies and
+# replace only the binary with the pinned upstream build.
+COPY --from=tmux-builder /out/tmux /usr/local/bin/tmux
 
 # Install complete upstream distributions for tools where Debian Bookworm is
 # substantially behind. The shared installer verifies GitHub's published
@@ -316,7 +341,7 @@ RUN groupadd \
 COPY --chmod=0644 images/base/profile.d/space-tools.sh \
   /etc/profile.d/clor-space-tools.sh
 
-# System-wide so both root and the space user get truecolor under tmux.
+# System-wide so both root and the space user get agent-friendly tmux defaults.
 COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 
 USER user
@@ -628,6 +653,7 @@ RUN test "${HOME}" = /root \
     test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
   done \
   && test -x /usr/local/lib/clor/gh-dash \
+  && test "$(command -v tmux)" = /usr/local/bin/tmux \
   && test ! -e /home/user/go/bin \
   && test -z "$(find /root/go /root/.cache/go-build /home/user/go \
     /home/user/.cache/go-build -type f -print -quit 2>/dev/null)" \
@@ -675,10 +701,20 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/remotion-space \
     /etc/profile.d/clor-space-tools.sh \
   && TERM=xterm-256color COLORTERM=truecolor script --quiet --return --command \
-    "tmux -L rgbcheck new-session \"tmux display -p '#{client_termfeatures}' >/tmp/termfeatures\"" \
+    "tmux -L tuicheck new-session \"tmux display -p '#{client_termfeatures}' >/tmp/termfeatures; tmux show-options -sv extended-keys >/tmp/extended-keys; tmux show-options -gv extended-keys-format >/tmp/extended-keys-format; tmux show-options -gv allow-passthrough >/tmp/allow-passthrough; tmux show-options -gv focus-events >/tmp/focus-events\"" \
     /dev/null >/dev/null \
-  && grep --quiet RGB /tmp/termfeatures \
-  && rm --force /tmp/termfeatures \
+  && grep --fixed-strings --quiet RGB /tmp/termfeatures \
+  && grep --fixed-strings --quiet extkeys /tmp/termfeatures \
+  && grep --fixed-strings --line-regexp --quiet on /tmp/extended-keys \
+  && grep --fixed-strings --line-regexp --quiet csi-u /tmp/extended-keys-format \
+  && grep --fixed-strings --line-regexp --quiet on /tmp/allow-passthrough \
+  && grep --fixed-strings --line-regexp --quiet on /tmp/focus-events \
+  && rm --force \
+    /tmp/allow-passthrough \
+    /tmp/extended-keys \
+    /tmp/extended-keys-format \
+    /tmp/focus-events \
+    /tmp/termfeatures \
   && test "$(jq --raw-output '.trustedExtensionAuthAccess | index("github.vscode-github-actions") != null' \
     /usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/product.json)" = "true" \
   && node --check \

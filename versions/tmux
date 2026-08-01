@@ -1,0 +1,9 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib"
+
+github_latest tmux/tmux
