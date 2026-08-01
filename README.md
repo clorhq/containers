@@ -28,3 +28,28 @@ services and terminal helpers only open local interactive interfaces: image
 startup never authenticates to a provider, selects a deployment target, or
 changes external infrastructure. Provider credentials remain runtime state,
 supplied interactively or through Clor secrets.
+
+## Base image tools
+
+`software-development-base` includes the practical tools below. Exact versions
+are pinned in [`images/base/Dockerfile`](images/base/Dockerfile).
+
+- **Agents and workspace:** Clor, Claude Code, Codex, code-server, and VS Code
+  extensions for GitHub pull requests and Actions, Python, Go, and YAML.
+- **Languages and package managers:** Node.js and npm, Bun, Deno, Go, Python,
+  pip, pipx, uv, pnpm, and Yarn.
+- **Editors and terminal workflow:** Neovim, Vim, Nano, tmux, screen, Lazygit,
+  Yazi, fzf, Glow, bat, eza, fd, zoxide, tree, ncdu, htop, and btop.
+- **Source control and code quality:** Git, Git LFS, GitHub CLI (`gh`), gh-dash,
+  delta, difftastic, ESLint, Prettier, ShellCheck, shfmt, golangci-lint,
+  actionlint, ast-grep, typos, Vale, and lychee.
+- **Development and automation:** TypeScript, tsx, Tailwind CSS, gopls, Delve,
+  mise, direnv, just, watchexec, Redocly CLI, and the Remotion space helper.
+- **APIs, networking, and security:** Posting, xh, Hurl, grpcurl, grpcui,
+  websocat, oha, yq, gitleaks, OSV-Scanner, curl, wget, OpenSSH, rsync, rclone,
+  ping, traceroute, mtr, netcat, socat, tcpdump, DNS tools, and whois.
+- **Data, documents, and media:** DuckDB, SQLite, jq, lnav, Pandoc, Typst,
+  Presenterm, ffmpeg, SoX, ImageMagick, ExifTool, Poppler tools, and common
+  archive utilities including zip, 7-Zip, xz, and zstd.
+- **Browser automation:** Playwright with Chromium and Firefox. WebKit is not
+  preinstalled; add it when needed with `playwright install webkit`.
