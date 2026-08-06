@@ -1,6 +1,7 @@
 command = [
     "/home/user/.local/bin/marimo",
     "edit",
+    "notebook.py",
     "--no-token",
     "--headless",
     "--host",

@@ -71,6 +71,7 @@ RUN gosu user env \
   && gosu user /home/user/.local/share/clor/data-venv/bin/harlequin --version \
   && grep --fixed-strings --quiet '0.0.0.0' /etc/clor/services/jupyterlab.toml \
   && grep --fixed-strings --quiet '8888' /etc/clor/services/jupyterlab.toml \
+  && grep --fixed-strings --quiet 'notebook.py' /etc/clor/services/marimo.toml \
   && grep --fixed-strings --quiet '2718' /etc/clor/services/marimo.toml \
   && grep --fixed-strings --quiet 'frame-ancestors *' \
     /home/user/.local/share/clor/data-venv/etc/jupyter/jupyter_server_config.py \

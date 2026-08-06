@@ -27,7 +27,7 @@ docker run --detach --name "${CONTAINER}" \
         JUPYTER_PLATFORM_DIRS=1 jupyter-lab --no-browser --ip=0.0.0.0 --port=8888 \
             --ServerApp.root_dir=. --ServerApp.token= \
             --ServerApp.password= --IdentityProvider.token= &
-        marimo edit --no-token --headless --host 0.0.0.0 --port 2718 &
+        marimo edit notebook.py --no-token --headless --host 0.0.0.0 --port 2718 &
         wait
     ' >/dev/null
 
@@ -47,6 +47,11 @@ for _ in $(seq 1 60); do
 done
 [[ "${jupyter_status}" = 200 ]]
 [[ "${marimo_status}" = 200 ]]
+[[ -f "${REPOSITORY}/notebook.py" ]]
+curl --silent --show-error --fail --output "${BODY}" \
+    "http://127.0.0.1:${marimo_port}/"
+grep --fixed-strings --quiet \
+    '<marimo-filename hidden>/space/repository/notebook.py</marimo-filename>' "${BODY}"
 
 # The tab is an iframe on clor.com, so Jupyter's stock "frame-ancestors 'self'"
 # blocks it: a browser enforces every policy it receives, and that one
