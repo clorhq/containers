@@ -18,12 +18,12 @@ chmod 0777 "${REPOSITORY}"
 # JUPYTER_PLATFORM_DIRS mirrors images/data/services/jupyterlab.toml, because it
 # is what decides whether the shipped jupyter_server_config.py is found at all.
 docker run --detach --name "${CONTAINER}" \
-    --volume "${REPOSITORY}:/space/repository" \
+    --volume "${REPOSITORY}:/home/user/repository" \
     --publish 127.0.0.1::8888 \
     --publish 127.0.0.1::2718 \
     "${IMAGE}" \
     bash --login -c '
-        cd /space/repository
+        cd /home/user/repository
         JUPYTER_PLATFORM_DIRS=1 jupyter-lab --no-browser --ip=0.0.0.0 --port=8888 \
             --ServerApp.root_dir=. --ServerApp.token= \
             --ServerApp.password= --IdentityProvider.token= &
@@ -51,7 +51,7 @@ done
 curl --silent --show-error --fail --output "${BODY}" \
     "http://127.0.0.1:${marimo_port}/"
 grep --fixed-strings --quiet \
-    '<marimo-filename hidden>/space/repository/notebook.py</marimo-filename>' "${BODY}"
+    '<marimo-filename hidden>/home/user/repository/notebook.py</marimo-filename>' "${BODY}"
 
 # The tab is an iframe on clor.com, so Jupyter's stock "frame-ancestors 'self'"
 # blocks it: a browser enforces every policy it receives, and that one
@@ -81,7 +81,7 @@ curl --silent --show-error --fail --request DELETE \
     --header 'Origin: https://example.clor.host' \
     "http://127.0.0.1:${jupyter_port}/api/kernels/${kernel_id}"
 
-[[ "$(docker exec --user user --workdir /space/repository "${CONTAINER}" pwd)" = /space/repository ]]
+[[ "$(docker exec --user user --workdir /home/user/repository "${CONTAINER}" pwd)" = /home/user/repository ]]
 docker exec --user user "${CONTAINER}" \
     /home/user/.local/share/clor/data-venv/bin/python -c \
     'import duckdb, ipykernel, marimo, pandas, polars, pyarrow'
