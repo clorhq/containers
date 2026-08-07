@@ -586,7 +586,12 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
 
 ENV CLOR_SPACE_USER="user"
 ENV CLOR_SPACE_HOME="/home/user"
-ENV CLOR_SPACE_DIRECTORY="/space"
+# The checkout root is the space account's home, so this repeats
+# CLOR_SPACE_HOME. The space daemon re-exports the variable from that home
+# rather than reading the value baked here, which is what lets placement stop
+# depending on the image; the baked value is what a container run by hand
+# reads, and what the agent tooling trusts as a project directory.
+ENV CLOR_SPACE_DIRECTORY="/home/user"
 WORKDIR /root
 ENTRYPOINT ["/usr/local/lib/clor/start"]
 
