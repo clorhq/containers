@@ -15,6 +15,7 @@ cd "${HOME}"
 
 fail() {
     printf 'user services test: %s\n' "$*" >&2
+    find "${XDG_STATE_HOME}" -path '*/log/current' -type f -exec tail -n 100 {} \; >&2 || true
     exit 1
 }
 

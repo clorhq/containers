@@ -21,6 +21,6 @@ if [[ ! -s "${DATA_DIRECTORY}/PG_VERSION" ]]; then
 fi
 
 exec "${POSTGRES_BINDIR}/postgres" \
-    --config-file="${CONFIG}" \
-    --data-directory="${DATA_DIRECTORY}" \
+    -D "${DATA_DIRECTORY}" \
+    -c "config_file=${CONFIG}" \
     -c "unix_socket_directories=${RUNTIME_DIRECTORY}"
