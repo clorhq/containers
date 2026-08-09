@@ -47,7 +47,7 @@ for SERVICE in postgres mysql redis; do
 done
 
 sv start postgres
-wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user
+wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user --dbname=postgres
 psql --host=127.0.0.1 --username=user --dbname=postgres \
     --command='CREATE TABLE clor_service_test (value integer); INSERT INTO clor_service_test VALUES (42);'
 
@@ -57,8 +57,8 @@ mariadb --protocol=tcp --host=127.0.0.1 --port=3306 --user=root \
     --execute='CREATE DATABASE clor_service_test; CREATE TABLE clor_service_test.values_table (value INT); INSERT INTO clor_service_test.values_table VALUES (42);'
 
 sv start redis
-wait_for redis redis-cli --host 127.0.0.1 --port 6379 ping
-redis-cli --host 127.0.0.1 --port 6379 set clor-service-test 42 >/dev/null
+wait_for redis redis-cli -h 127.0.0.1 -p 6379 ping
+redis-cli -h 127.0.0.1 -p 6379 set clor-service-test 42 >/dev/null
 
 ss --listening --tcp --numeric | grep --extended-regexp --quiet '127\.0\.0\.1:5432[[:space:]]' ||
     fail 'postgres is not bound to loopback'
@@ -69,9 +69,9 @@ ss --listening --tcp --numeric | grep --extended-regexp --quiet '127\.0\.0\.1:63
 
 sv stop postgres mysql redis
 sv start postgres mysql redis
-wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user
+wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user --dbname=postgres
 wait_for mysql mariadb-admin --protocol=tcp --host=127.0.0.1 --port=3306 --user=root ping
-wait_for redis redis-cli --host 127.0.0.1 --port 6379 ping
+wait_for redis redis-cli -h 127.0.0.1 -p 6379 ping
 
 [[ "$(psql --tuples-only --no-align --host=127.0.0.1 --username=user \
     --dbname=postgres --command='SELECT value FROM clor_service_test;')" = 42 ]] ||
@@ -79,7 +79,7 @@ wait_for redis redis-cli --host 127.0.0.1 --port 6379 ping
 [[ "$(mariadb --skip-column-names --batch --protocol=tcp --host=127.0.0.1 \
     --port=3306 --user=root --execute='SELECT value FROM clor_service_test.values_table;')" = 42 ]] ||
     fail 'mysql data did not survive restart'
-[[ "$(redis-cli --raw --host 127.0.0.1 --port 6379 get clor-service-test)" = 42 ]] ||
+[[ "$(redis-cli --raw -h 127.0.0.1 -p 6379 get clor-service-test)" = 42 ]] ||
     fail 'redis data did not survive restart'
 
 for SERVICE in postgresql mysql redis; do
