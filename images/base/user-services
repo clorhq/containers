@@ -17,6 +17,7 @@ mkdir --parents \
     "${XDG_RUNTIME_DIR}" \
     "${SVDIR}"
 chmod 0700 "${XDG_RUNTIME_DIR}"
+cd "${HOME}"
 
 RUNSVDIR_PID=
 shutdown() {
