@@ -11,6 +11,7 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+cd "${HOME}"
 
 fail() {
     printf 'user services test: %s\n' "$*" >&2
