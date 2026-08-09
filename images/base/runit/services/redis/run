@@ -1,0 +1,15 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+exec 2>&1
+
+DATA_DIRECTORY="${XDG_DATA_HOME:-${HOME}/.local/share}/redis"
+RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:-/run/user/$(id --user)}/redis"
+CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/redis/redis.conf"
+
+mkdir --parents "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+chmod 0700 "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+exec redis-server "${CONFIG}" \
+    --dir "${DATA_DIRECTORY}" \
+    --pidfile "${RUNTIME_DIRECTORY}/redis.pid"

@@ -1,0 +1,25 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+exec 2>&1
+
+DATA_DIRECTORY="${XDG_DATA_HOME:-${HOME}/.local/share}/mysql"
+RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:-/run/user/$(id --user)}/mysql"
+CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/mysql/my.cnf"
+
+mkdir --parents "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+chmod 0700 "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+if [[ ! -d "${DATA_DIRECTORY}/mysql" ]]; then
+    mariadb-install-db \
+        --defaults-file="${CONFIG}" \
+        --auth-root-authentication-method=normal \
+        --skip-test-db \
+        --datadir="${DATA_DIRECTORY}"
+fi
+
+exec mariadbd \
+    --defaults-file="${CONFIG}" \
+    --datadir="${DATA_DIRECTORY}" \
+    --socket="${RUNTIME_DIRECTORY}/mysql.sock" \
+    --pid-file="${RUNTIME_DIRECTORY}/mysql.pid"

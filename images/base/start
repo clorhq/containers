@@ -10,11 +10,18 @@ set -o pipefail
 
 SPACE_USER="${CLOR_SPACE_USER:-user}"
 SPACE_HOME="${CLOR_SPACE_HOME:-/home/user}"
+SPACE_RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:-/run/user/$(id --user "${SPACE_USER}")}"
 SPACE_PATH="${SPACE_HOME}/.local/bin:${SPACE_HOME}/go/bin:${SPACE_HOME}/.npm-global/bin"
 if [[ -n "${CLOR_SPACE_PATH_PREFIX:-}" ]]; then
     SPACE_PATH="${CLOR_SPACE_PATH_PREFIX}:${SPACE_PATH}"
 fi
 SPACE_PATH="${SPACE_PATH}:${PATH}"
+
+install --directory \
+    --owner="${SPACE_USER}" \
+    --group="${SPACE_USER}" \
+    --mode=0700 \
+    "${SPACE_RUNTIME_DIRECTORY}"
 
 if (($# > 0)); then
     mkdir --parents /run/clor
@@ -26,6 +33,7 @@ if (($# > 0)); then
         LOGNAME="${SPACE_USER}" \
         PATH="${SPACE_PATH}" \
         PLAYWRIGHT_BROWSERS_PATH="${SPACE_HOME}/.cache/ms-playwright" \
+        XDG_RUNTIME_DIR="${SPACE_RUNTIME_DIRECTORY}" \
         "$@"
 fi
 
@@ -38,4 +46,7 @@ fi
 # The daemon stays root (it is the container's init and drops privileges
 # per child itself); the space PATH puts the space user's clor release
 # first.
-exec env PATH="${SPACE_PATH}" clor space daemon
+exec env \
+    PATH="${SPACE_PATH}" \
+    XDG_RUNTIME_DIR="${SPACE_RUNTIME_DIRECTORY}" \
+    clor space daemon

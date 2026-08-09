@@ -1,0 +1,3 @@
+# User-controlled development services. runsvdir stays idle until the user
+# starts one of the services that ships with a `down` marker.
+command = ["/usr/local/lib/clor/user-services"]

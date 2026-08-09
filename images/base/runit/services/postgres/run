@@ -1,0 +1,26 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+exec 2>&1
+
+DATA_DIRECTORY="${XDG_DATA_HOME:-${HOME}/.local/share}/postgresql"
+RUNTIME_DIRECTORY="${XDG_RUNTIME_DIR:-/run/user/$(id --user)}/postgresql"
+CONFIG="${XDG_CONFIG_HOME:-${HOME}/.config}/postgresql/postgresql.conf"
+POSTGRES_BINDIR="$(pg_config --bindir)"
+
+mkdir --parents "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+chmod 0700 "${DATA_DIRECTORY}" "${RUNTIME_DIRECTORY}"
+if [[ ! -s "${DATA_DIRECTORY}/PG_VERSION" ]]; then
+    "${POSTGRES_BINDIR}/initdb" \
+        --auth-host=trust \
+        --auth-local=trust \
+        --encoding=UTF8 \
+        --username="$(id --user --name)" \
+        --pgdata="${DATA_DIRECTORY}"
+fi
+
+exec "${POSTGRES_BINDIR}/postgres" \
+    --config-file="${CONFIG}" \
+    --data-directory="${DATA_DIRECTORY}" \
+    -c "unix_socket_directories=${RUNTIME_DIRECTORY}"

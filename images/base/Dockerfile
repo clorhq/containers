@@ -32,8 +32,14 @@ ENV LC_ALL="C.UTF-8"
 # carries Playwright's own Chromium and Firefox builds, and the wrapper on
 # PATH at /usr/local/bin/chromium runs the Playwright Chromium. The fonts came
 # in as dependencies of those packages, and a browser with no fonts renders
-# every screenshot as boxes, so they are now requested by name.
-RUN apt-get update && apt-get install --yes \
+# every screenshot as boxes, so they are now requested by name. Package
+# post-install scripts also seed root-owned database clusters; startup is
+# suppressed and those unused clusters are removed in this same layer because
+# user services initialize their own XDG data directories.
+RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-rc.d; fi \
+  && printf '#!/bin/sh\nexit 101\n' >/usr/sbin/policy-rc.d \
+  && chmod 0755 /usr/sbin/policy-rc.d \
+  && apt-get update && apt-get install --yes \
   bubblewrap \
   ca-certificates \
   curl \
@@ -92,6 +98,13 @@ RUN apt-get update && apt-get install --yes \
   btop \
   sysstat \
   sqlite3 \
+  runit \
+  postgresql \
+  postgresql-client \
+  mariadb-server \
+  mariadb-client \
+  redis-server \
+  redis-tools \
   openssl \
   openssh-client \
   sshpass \
@@ -122,6 +135,16 @@ RUN apt-get update && apt-get install --yes \
   fonts-dejavu-core \
   fonts-noto-color-emoji \
   && if [ "$(dpkg --print-architecture)" = "amd64" ]; then apt-get install --yes ltrace; fi \
+  && if [ -e /tmp/policy-rc.d ]; then \
+    mv /tmp/policy-rc.d /usr/sbin/policy-rc.d; \
+  else \
+    rm --force /usr/sbin/policy-rc.d; \
+  fi \
+  && rm --recursive --force \
+    /etc/postgresql/* \
+    /var/lib/postgresql/* \
+    /var/lib/mysql/* \
+    /var/log/mysql/* \
   && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
@@ -526,7 +549,13 @@ COPY --chmod=0755 images/base/clor-node-app /usr/local/bin/clor-node-app
 COPY --chmod=0755 images/base/clor-api-workbench /usr/local/bin/clor-api-workbench
 COPY --chmod=0755 images/base/remotion-space /usr/local/bin/remotion-space
 COPY --chmod=0755 images/base/start /usr/local/lib/clor/start
+COPY --chmod=0755 images/base/user-services /usr/local/lib/clor/user-services
 COPY --chmod=0644 images/base/services/code-server.toml /etc/clor/services/code-server.toml
+COPY --chmod=0644 images/base/services/user-services.toml /etc/clor/services/user-services.toml
+COPY --chown=user:user images/base/runit /home/user/.config/runit
+COPY --chown=user:user images/base/databases/postgresql /home/user/.config/postgresql
+COPY --chown=user:user images/base/databases/mysql /home/user/.config/mysql
+COPY --chown=user:user images/base/databases/redis /home/user/.config/redis
 RUN mkdir --parents \
   /etc/clor/services \
   /var/lib/clor \
@@ -587,6 +616,8 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
 ENV CLOR_SPACE_USER="user"
 ENV CLOR_SPACE_HOME="/home/user"
 ENV CLOR_SPACE_DIRECTORY="/space"
+ENV XDG_RUNTIME_DIR="/run/user/1000"
+ENV SVDIR="/home/user/.config/runit/services"
 WORKDIR /root
 ENTRYPOINT ["/usr/local/lib/clor/start"]
 
@@ -629,6 +660,13 @@ RUN test "${HOME}" = /root \
     oha \
     osv-scanner \
     posting \
+    psql \
+    mariadb \
+    mariadbd \
+    redis-cli \
+    redis-server \
+    runsvdir \
+    sv \
     pandoc \
     presenterm \
     remotion-space \
@@ -652,6 +690,7 @@ RUN test "${HOME}" = /root \
     test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
   done \
   && test -x /usr/local/lib/clor/gh-dash \
+  && test -x "$(pg_config --bindir)/postgres" \
   && test "$(command -v tmux)" = /usr/local/bin/tmux \
   && test ! -e /home/user/go/bin \
   && test -z "$(find /root/go /root/.cache/go-build /home/user/go \
@@ -673,6 +712,8 @@ RUN test "${HOME}" = /root \
       && [[ "${PATH}" == *"/home/user/.npm-global/bin"* ]] \
       && [[ "${PATH}" != *"/root/"* ]] \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
+      && test "${XDG_RUNTIME_DIR}" = /run/user/1000 \
+      && test "${SVDIR}" = /home/user/.config/runit/services \
       && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
       && test "$(command -v ya)" = /usr/local/bin/ya \
       && test "$(command -v yazi)" = /usr/local/bin/yazi \
@@ -682,7 +723,11 @@ RUN test "${HOME}" = /root \
       && yazi --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && grep --fixed-strings --line-regexp --quiet \
         "disableStartupPopups: true" \
-        /home/user/.config/lazygit/config.yml' \
+        /home/user/.config/lazygit/config.yml \
+      && test -w /home/user/.config/runit/services/postgres/run \
+      && test -w /home/user/.config/postgresql/postgresql.conf \
+      && test -w /home/user/.config/mysql/my.cnf \
+      && test -w /home/user/.config/redis/redis.conf' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/clor-api-workbench \
@@ -691,13 +736,21 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
+    /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
+    /home/user/.config/runit/services/postgres/run \
+    /home/user/.config/runit/services/postgres/log/run \
+    /home/user/.config/runit/services/mysql/run \
+    /home/user/.config/runit/services/mysql/log/run \
+    /home/user/.config/runit/services/redis/run \
+    /home/user/.config/runit/services/redis/log/run \
     /etc/profile.d/clor-space-tools.sh \
   && TERM=xterm-256color COLORTERM=truecolor script --quiet --return --command \
     "tmux -L tuicheck new-session \"tmux display -p '#{client_termfeatures}' >/tmp/termfeatures; tmux show-options -sv extended-keys >/tmp/extended-keys; tmux show-options -gv extended-keys-format >/tmp/extended-keys-format; tmux show-options -gv allow-passthrough >/tmp/allow-passthrough; tmux show-options -gv focus-events >/tmp/focus-events\"" \
@@ -731,12 +784,14 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
+    /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
@@ -744,6 +799,12 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/remotion-npx \
     /usr/local/lib/clor/tests/bin/remotion-package-manager \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
+    /home/user/.config/runit/services/postgres/run \
+    /home/user/.config/runit/services/postgres/log/run \
+    /home/user/.config/runit/services/mysql/run \
+    /home/user/.config/runit/services/mysql/log/run \
+    /home/user/.config/runit/services/redis/run \
+    /home/user/.config/runit/services/redis/log/run \
     /etc/profile.d/clor-space-tools.sh \
   && shfmt -d -i 4 -ci \
     /usr/local/bin/chromium \
@@ -753,12 +814,14 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
     /usr/local/lib/clor/start \
+    /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
     /usr/local/lib/clor/tests/gh-dash \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
     /usr/local/lib/clor/tests/start \
+    /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
@@ -766,6 +829,12 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/bin/remotion-npx \
     /usr/local/lib/clor/tests/bin/remotion-package-manager \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
+    /home/user/.config/runit/services/postgres/run \
+    /home/user/.config/runit/services/postgres/log/run \
+    /home/user/.config/runit/services/mysql/run \
+    /home/user/.config/runit/services/mysql/log/run \
+    /home/user/.config/runit/services/redis/run \
+    /home/user/.config/runit/services/redis/log/run \
     /etc/profile.d/clor-space-tools.sh \
   && node /usr/local/lib/clor/tests/github-authentication.js \
   && /usr/local/lib/clor/tests/claude-plugins \
@@ -775,6 +844,14 @@ RUN test "${HOME}" = /root \
   && /usr/local/lib/clor/tests/gh-dash \
   && /usr/local/lib/clor/tests/remotion-space \
   && /usr/local/lib/clor/tests/start
+RUN gosu user env \
+    HOME=/home/user \
+    XDG_CONFIG_HOME=/home/user/.config \
+    XDG_DATA_HOME=/home/user/.local/share \
+    XDG_STATE_HOME=/home/user/.local/state \
+    XDG_RUNTIME_DIR=/run/user/1000 \
+    SVDIR=/home/user/.config/runit/services \
+    /usr/local/lib/clor/tests/user-services
 RUN gosu user env \
     HOME=/home/user \
     PLAYWRIGHT_BROWSERS_PATH=/home/user/.cache/ms-playwright \

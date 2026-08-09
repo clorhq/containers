@@ -94,6 +94,43 @@ are pinned in [`images/base/Dockerfile`](images/base/Dockerfile).
   [ffmpeg](https://github.com/FFmpeg/FFmpeg), SoX, ImageMagick, ExifTool,
   Poppler tools, and common archive utilities including zip, 7-Zip, xz, and
   zstd.
+- **Local development services:** PostgreSQL, MariaDB/MySQL, and Redis servers
+  and clients, supervised as the space user and disabled by default.
 - **Browser automation:** [Playwright](https://github.com/microsoft/playwright)
   with Chromium and Firefox. WebKit is not preinstalled; add it when needed
   with `playwright install webkit`.
+
+## Local development services
+
+PostgreSQL, MariaDB (available under the `mysql` service name), and Redis are
+preconfigured for local development. They bind only to loopback, use
+passwordless development authentication, and do not start with the space.
+
+```bash
+sv start postgres
+sv start mysql
+sv start redis
+
+sv status postgres mysql redis
+sv stop postgres mysql redis
+```
+
+The first start initializes each database. PostgreSQL creates the `user`
+superuser, MariaDB creates a passwordless local `root` account, and Redis does
+not require a password. These defaults are for development inside a space,
+not for publicly reachable or production databases.
+
+The services follow the XDG base-directory layout:
+
+| Content | Location |
+| --- | --- |
+| runit service definitions | `~/.config/runit/services` |
+| Server configuration | `~/.config/postgresql`, `~/.config/mysql`, `~/.config/redis` |
+| Database data | `~/.local/share/postgresql`, `~/.local/share/mysql`, `~/.local/share/redis` |
+| Rotated logs | `~/.local/state/<service>/log` |
+| Sockets and PID files | `$XDG_RUNTIME_DIR/<service>` |
+
+Edit the native server config and restart the corresponding service to change
+ports, authentication, persistence, or network exposure. To reset a database,
+stop its service and remove only that service's directory under
+`~/.local/share`; its next start initializes a fresh database.

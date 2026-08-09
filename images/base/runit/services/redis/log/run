@@ -1,0 +1,8 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+LOG_DIRECTORY="${XDG_STATE_HOME:-${HOME}/.local/state}/redis/log"
+mkdir --parents "${LOG_DIRECTORY}"
+exec svlogd -tt "${LOG_DIRECTORY}"

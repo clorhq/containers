@@ -54,12 +54,16 @@ reset_state
 # The quoted variables intentionally expand in the passthrough shell.
 # shellcheck disable=SC2016
 PASSTHROUGH="$(env --ignore-environment PATH="${SYSTEM_PATH}" HOME=/root "${START}" \
-    bash -c 'printf "%s %s %s %s" "$(id --user --name)" "$PWD" "$HOME" "$PATH"')"
-read -r RUN_USER RUN_DIRECTORY RUN_HOME RUN_PATH <<<"${PASSTHROUGH}"
+    bash -c 'printf "%s %s %s %s %s" "$(id --user --name)" "$PWD" "$HOME" "$PATH" "$XDG_RUNTIME_DIR"')"
+read -r RUN_USER RUN_DIRECTORY RUN_HOME RUN_PATH RUN_RUNTIME_DIRECTORY <<<"${PASSTHROUGH}"
 [[ "${RUN_USER}" == "user" ]] || fail "passthrough user = ${RUN_USER}"
 [[ "${RUN_DIRECTORY}" == "/home/user" ]] || fail "passthrough directory = ${RUN_DIRECTORY}"
 [[ "${RUN_HOME}" == "/home/user" ]] || fail "passthrough home = ${RUN_HOME}"
 [[ "${RUN_PATH}" == "/home/user/.local/bin:"* ]] || fail "passthrough path = ${RUN_PATH}"
+[[ "${RUN_RUNTIME_DIRECTORY}" == "/run/user/1000" ]] ||
+    fail "passthrough runtime directory = ${RUN_RUNTIME_DIRECTORY}"
+[[ "$(stat --format=%U:%G:%a "${RUN_RUNTIME_DIRECTORY}")" == user:user:700 ]] ||
+    fail 'passthrough runtime directory has the wrong ownership or mode'
 [[ -f "${READY_FILE}" ]] || fail 'passthrough did not mark readiness'
 
 rm --recursive --force "${TEST_ROOT}"

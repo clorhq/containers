@@ -1,0 +1,91 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+SUPERVISOR_PID=
+cleanup() {
+    if [[ -n "${SUPERVISOR_PID}" ]] && kill -0 "${SUPERVISOR_PID}" 2>/dev/null; then
+        kill "${SUPERVISOR_PID}" 2>/dev/null || true
+        wait "${SUPERVISOR_PID}" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+fail() {
+    printf 'user services test: %s\n' "$*" >&2
+    exit 1
+}
+
+wait_for() {
+    local DESCRIPTION="$1"
+    shift
+    local ATTEMPT
+    for ((ATTEMPT = 0; ATTEMPT < 60; ATTEMPT++)); do
+        if "$@" >/dev/null 2>&1; then
+            return
+        fi
+        sleep 1
+    done
+    fail "timed out waiting for ${DESCRIPTION}"
+}
+
+database_processes_stopped() {
+    ! pgrep --uid "$(id --user)" --full '(postgres|mariadbd|redis-server)' >/dev/null 2>&1
+}
+
+/usr/local/lib/clor/user-services &
+SUPERVISOR_PID=$!
+wait_for 'runit supervisors' test -d "${SVDIR}/postgres/supervise"
+
+for SERVICE in postgres mysql redis; do
+    [[ -f "${SVDIR}/${SERVICE}/down" ]] || fail "${SERVICE} starts by default"
+    sv status "${SERVICE}" | grep --fixed-strings --quiet 'down:' ||
+        fail "${SERVICE} is not down"
+done
+
+sv start postgres
+wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user
+psql --host=127.0.0.1 --username=user --dbname=postgres \
+    --command='CREATE TABLE clor_service_test (value integer); INSERT INTO clor_service_test VALUES (42);'
+
+sv start mysql
+wait_for mysql mariadb-admin --protocol=tcp --host=127.0.0.1 --port=3306 --user=root ping
+mariadb --protocol=tcp --host=127.0.0.1 --port=3306 --user=root \
+    --execute='CREATE DATABASE clor_service_test; CREATE TABLE clor_service_test.values_table (value INT); INSERT INTO clor_service_test.values_table VALUES (42);'
+
+sv start redis
+wait_for redis redis-cli --host 127.0.0.1 --port 6379 ping
+redis-cli --host 127.0.0.1 --port 6379 set clor-service-test 42 >/dev/null
+
+ss --listening --tcp --numeric | grep --extended-regexp --quiet '127\.0\.0\.1:5432[[:space:]]' ||
+    fail 'postgres is not bound to loopback'
+ss --listening --tcp --numeric | grep --extended-regexp --quiet '127\.0\.0\.1:3306[[:space:]]' ||
+    fail 'mysql is not bound to loopback'
+ss --listening --tcp --numeric | grep --extended-regexp --quiet '127\.0\.0\.1:6379[[:space:]]' ||
+    fail 'redis is not bound to loopback'
+
+sv stop postgres mysql redis
+sv start postgres mysql redis
+wait_for postgres pg_isready --host=127.0.0.1 --port=5432 --username=user
+wait_for mysql mariadb-admin --protocol=tcp --host=127.0.0.1 --port=3306 --user=root ping
+wait_for redis redis-cli --host 127.0.0.1 --port 6379 ping
+
+[[ "$(psql --tuples-only --no-align --host=127.0.0.1 --username=user \
+    --dbname=postgres --command='SELECT value FROM clor_service_test;')" = 42 ]] ||
+    fail 'postgres data did not survive restart'
+[[ "$(mariadb --skip-column-names --batch --protocol=tcp --host=127.0.0.1 \
+    --port=3306 --user=root --execute='SELECT value FROM clor_service_test.values_table;')" = 42 ]] ||
+    fail 'mysql data did not survive restart'
+[[ "$(redis-cli --raw --host 127.0.0.1 --port 6379 get clor-service-test)" = 42 ]] ||
+    fail 'redis data did not survive restart'
+
+for SERVICE in postgresql mysql redis; do
+    wait_for "${SERVICE} log" test -s "${XDG_STATE_HOME}/${SERVICE}/log/current"
+done
+
+cleanup
+SUPERVISOR_PID=
+wait_for 'database shutdown' database_processes_stopped
+
+printf 'user services test: ok\n'

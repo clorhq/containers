@@ -1,0 +1,38 @@
+#!/bin/bash
+# Supervise opt-in services without making them part of container readiness.
+set -o errexit
+set -o nounset
+set -o pipefail
+
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-${HOME}/.local/state}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id --user)}"
+export SVDIR="${SVDIR:-${XDG_CONFIG_HOME}/runit/services}"
+
+mkdir --parents \
+    "${XDG_CONFIG_HOME}" \
+    "${XDG_DATA_HOME}" \
+    "${XDG_STATE_HOME}" \
+    "${XDG_RUNTIME_DIR}" \
+    "${SVDIR}"
+chmod 0700 "${XDG_RUNTIME_DIR}"
+
+RUNSVDIR_PID=
+shutdown() {
+    trap - HUP INT TERM
+    if [[ -n "${RUNSVDIR_PID}" ]] && kill -0 "${RUNSVDIR_PID}" 2>/dev/null; then
+        SERVICES=("${SVDIR}"/*)
+        if [[ -e "${SERVICES[0]}" ]]; then
+            sv -w 30 force-stop "${SERVICES[@]}" || true
+            sv exit "${SERVICES[@]}" || true
+        fi
+        kill "${RUNSVDIR_PID}" 2>/dev/null || true
+        wait "${RUNSVDIR_PID}" 2>/dev/null || true
+    fi
+}
+trap shutdown HUP INT TERM
+
+runsvdir -P "${SVDIR}" &
+RUNSVDIR_PID=$!
+wait "${RUNSVDIR_PID}"
