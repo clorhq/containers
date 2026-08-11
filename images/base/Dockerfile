@@ -593,11 +593,7 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
     \( \
       -name installation_id \
       -o -name .tmp \
-      -o -name 'goals_1.sqlite*' \
-      -o -name 'logs_2.sqlite*' \
-      -o -name 'memories_1.sqlite*' \
-      -o -name 'queue_1.sqlite*' \
-      -o -name 'state_5.sqlite*' \
+      -o -name '*.sqlite*' \
     \) \
     -exec rm --recursive --force -- {} + \
   && test -d /home/user/.codex/packages \
@@ -697,11 +693,7 @@ RUN test -d /home/user/.codex/packages \
     \( \
       -name installation_id \
       -o -name .tmp \
-      -o -name 'goals_1.sqlite*' \
-      -o -name 'logs_2.sqlite*' \
-      -o -name 'memories_1.sqlite*' \
-      -o -name 'queue_1.sqlite*' \
-      -o -name 'state_5.sqlite*' \
+      -o -name '*.sqlite*' \
     \) \
     -print -quit)" \
   && test "$(readlink --canonicalize /home/user/.local/bin/codex)" \
