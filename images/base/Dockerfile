@@ -573,7 +573,7 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.147.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.226"
+ARG CLAUDE_VERSION="2.1.227"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
   gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
