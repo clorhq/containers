@@ -574,11 +574,14 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 ARG CODEX_VERSION="0.147.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
 ARG CLAUDE_VERSION="2.1.227"
-# A one-shot app server does not need Codex's command aliases. Treat HOME as
-# its temp root so the safety guard skips creating a persistent tmp/arg0 tree.
+# Refuse to initialize over an existing Codex home: the cleanup below is safe
+# only because every entry was created by this installation and initialization.
+# A one-shot app server does not need Codex's command aliases, so treat HOME as
+# its temp root and avoid creating a persistent tmp/arg0 tree.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
-  gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
+  test ! -e /home/user/.codex \
+  && gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
   && gosu user env \
     --unset=OPENAI_API_KEY \
     --unset=CODEX_API_KEY \
