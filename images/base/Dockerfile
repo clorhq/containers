@@ -574,9 +574,52 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 ARG CODEX_VERSION="0.147.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
 ARG CLAUDE_VERSION="2.1.227"
+# A one-shot app server does not need Codex's command aliases. Treat HOME as
+# its temp root so the safety guard skips creating a persistent tmp/arg0 tree.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
   gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
+  && gosu user env \
+    --unset=OPENAI_API_KEY \
+    --unset=CODEX_API_KEY \
+    HOME=/home/user \
+    CODEX_HOME=/home/user/.codex \
+    TMPDIR=/home/user \
+    /home/user/.local/bin/codex app-server </dev/null >/dev/null \
+  && test ! -e /home/user/.codex/auth.json \
+  && find /home/user/.codex \
+    -mindepth 1 \
+    -maxdepth 1 \
+    \( \
+      -name installation_id \
+      -o -name .tmp \
+      -o -name 'goals_1.sqlite*' \
+      -o -name 'logs_2.sqlite*' \
+      -o -name 'memories_1.sqlite*' \
+      -o -name 'queue_1.sqlite*' \
+      -o -name 'state_5.sqlite*' \
+    \) \
+    -exec rm --recursive --force -- {} + \
+  && test -d /home/user/.codex/packages \
+  && test -d /home/user/.codex/skills/.system \
+  && find /home/user/.codex/skills \
+    -mindepth 1 \
+    -maxdepth 1 \
+    ! -name .system \
+    -exec rm --recursive --force -- {} + \
+  && test -z "$(find /home/user/.codex \
+    -mindepth 1 \
+    -maxdepth 1 \
+    ! -name packages \
+    ! -name skills \
+    -print -quit)" \
+  && test -f /home/user/.codex/skills/.system/.codex-system-skills.marker \
+  && test -z "$(find /home/user/.codex/skills/.system \
+    \( ! -user user -o ! -group user \) \
+    -print -quit)" \
+  && test -z "$(gosu user find /home/user/.codex/skills/.system \
+    ! -writable \
+    -print -quit)" \
   && gosu user env HOME=/home/user /installers/claude "${CLAUDE_VERSION}"
 
 # Install the Claude Code plugins every space gets by default, so no space pays
@@ -624,6 +667,47 @@ ENTRYPOINT ["/usr/local/lib/clor/start"]
 # Exercise the completed image without copying test assets into production.
 FROM base AS test
 COPY --chmod=0755 images/base/tests /usr/local/lib/clor/tests
+# Codex owns the contents and marker format beneath skills/.system. Assert the
+# retained tree is usable without coupling the image to a fixed skill layout.
+RUN test -d /home/user/.codex/packages \
+  && test -d /home/user/.codex/skills \
+  && test -z "$(find /home/user/.codex \
+    -mindepth 1 \
+    -maxdepth 1 \
+    ! -name packages \
+    ! -name skills \
+    -print -quit)" \
+  && test -z "$(find /home/user/.codex/skills \
+    -mindepth 1 \
+    -maxdepth 1 \
+    ! -name .system \
+    -print -quit)" \
+  && test -f /home/user/.codex/skills/.system/.codex-system-skills.marker \
+  && test -s /home/user/.codex/skills/.system/.codex-system-skills.marker \
+  && test -z "$(find /home/user/.codex/skills/.system \
+    \( ! -user user -o ! -group user \) \
+    -print -quit)" \
+  && test -z "$(gosu user find /home/user/.codex/skills/.system \
+    ! -writable \
+    -print -quit)" \
+  && test ! -e /home/user/.codex/auth.json \
+  && test -z "$(find /home/user/.codex \
+    -mindepth 1 \
+    -maxdepth 1 \
+    \( \
+      -name installation_id \
+      -o -name .tmp \
+      -o -name 'goals_1.sqlite*' \
+      -o -name 'logs_2.sqlite*' \
+      -o -name 'memories_1.sqlite*' \
+      -o -name 'queue_1.sqlite*' \
+      -o -name 'state_5.sqlite*' \
+    \) \
+    -print -quit)" \
+  && test "$(readlink --canonicalize /home/user/.local/bin/codex)" \
+    = "$(readlink --canonicalize /home/user/.codex/packages/standalone/current/bin/codex)" \
+  && test "$(gosu user env HOME=/home/user \
+    /home/user/.local/bin/codex --version)" = "codex-cli ${CODEX_VERSION}"
 # Bash has no long spelling for -c; login mode verifies /etc/profile behavior.
 # The chain is silent, so a failure reports only an exit code. To find out
 # which assertion failed, prefix it with `set -x &&` and rebuild the stage.
