@@ -1,0 +1,77 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install ShellCheck and shfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck shfmt
+      - name: Install actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Lint GitHub Actions workflows
+        run: |
+          "$(go env GOPATH)/bin/actionlint" .github/workflows/*.yml
+      - name: Check Bash syntax
+        run: |
+          BASH_FILES=()
+          while IFS= read -r -d '' FILE; do
+            if head --lines 1 -- "${FILE}" | grep --fixed-strings --quiet '#!/bin/bash'; then
+              BASH_FILES+=("${FILE}")
+            fi
+          done < <(git ls-files -z)
+          bash -n "${BASH_FILES[@]}"
+      - name: Lint changed Bash scripts
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            BASE="${PR_BASE}"
+          else
+            BASE="${PUSH_BASE}"
+          fi
+
+          if [[ "${BASE}" == "0000000000000000000000000000000000000000" ]]; then
+            CHANGED_FILES=("${HEAD}")
+          else
+            CHANGED_FILES=("${BASE}" "${HEAD}")
+          fi
+
+          BASH_FILES=()
+          while IFS= read -r -d '' FILE; do
+            if [[ -f "${FILE}" ]] \
+                && head --lines 1 -- "${FILE}" | grep --fixed-strings --quiet '#!/bin/bash'; then
+              BASH_FILES+=("${FILE}")
+            fi
+          done < <(
+            if [[ "${#CHANGED_FILES[@]}" -eq 1 ]]; then
+              git diff-tree --no-commit-id --root -r --name-only -z --diff-filter=ACMR \
+                --find-renames --find-copies "${CHANGED_FILES[0]}"
+            else
+              git diff --name-only -z --diff-filter=ACMR --find-renames --find-copies \
+                "${CHANGED_FILES[0]}" "${CHANGED_FILES[1]}"
+            fi
+          )
+
+          if [[ "${#BASH_FILES[@]}" -eq 0 ]]; then
+            exit 0
+          fi
+
+          shellcheck "${BASH_FILES[@]}"
+          shfmt -d -i 4 -ci "${BASH_FILES[@]}"

@@ -120,9 +120,13 @@ jobs:
         working-directory: /tmp/digests
         run: |
           test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
+          IMAGE_REFS=()
+          for DIGEST in *; do
+            IMAGE_REFS+=("ghcr.io/clorhq/software-development-base@sha256:${DIGEST}")
+          done
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-base:latest \
-            $(printf 'ghcr.io/clorhq/software-development-base@sha256:%s ' *)
+            "${IMAGE_REFS[@]}"
           docker buildx imagetools inspect ghcr.io/clorhq/software-development-base:latest
   variants:
     needs: merge-base
@@ -223,9 +227,13 @@ jobs:
         working-directory: /tmp/digests
         run: |
           test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
+          IMAGE_REFS=()
+          for DIGEST in *; do
+            IMAGE_REFS+=("ghcr.io/clorhq/software-development-${{ matrix.image }}@sha256:${DIGEST}")
+          done
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-${{ matrix.image }}:latest \
-            $(printf 'ghcr.io/clorhq/software-development-${{ matrix.image }}@sha256:%s ' *)
+            "${IMAGE_REFS[@]}"
           docker buildx imagetools inspect \
             ghcr.io/clorhq/software-development-${{ matrix.image }}:latest
   data:
@@ -326,8 +334,12 @@ jobs:
         working-directory: /tmp/digests
         run: |
           test "$(find . -maxdepth 1 -type f | wc --lines)" -eq 2
+          IMAGE_REFS=()
+          for DIGEST in *; do
+            IMAGE_REFS+=("ghcr.io/clorhq/software-development-data@sha256:${DIGEST}")
+          done
           docker buildx imagetools create \
             --tag ghcr.io/clorhq/software-development-data:latest \
-            $(printf 'ghcr.io/clorhq/software-development-data@sha256:%s ' *)
+            "${IMAGE_REFS[@]}"
           docker buildx imagetools inspect \
             ghcr.io/clorhq/software-development-data:latest
