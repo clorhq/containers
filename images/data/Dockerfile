@@ -49,6 +49,8 @@ RUN uv python install "${PYTHON_VERSION}" \
 # JUPYTER_PLATFORM_DIRS=1, which drops the system config path. See the file.
 COPY --chown=user:user --chmod=0644 images/data/jupyter/jupyter_server_config.py \
   ${CLOR_DATA_VENV}/etc/jupyter/jupyter_server_config.py
+COPY --chown=user:user --chmod=0644 images/data/jupyter/overrides.json \
+  ${CLOR_DATA_VENV}/share/jupyter/lab/settings/overrides.json
 
 USER root
 ENV HOME="/root"
@@ -79,6 +81,10 @@ RUN gosu user env \
     HOME=/home/user \
     /home/user/.local/share/clor/data-venv/bin/python -m py_compile \
     /home/user/.local/share/clor/data-venv/etc/jupyter/jupyter_server_config.py \
+  && gosu user env \
+    HOME=/home/user \
+    /home/user/.local/share/clor/data-venv/bin/python -c \
+    'import json, pathlib, sys; settings = pathlib.Path("/home/user/.local/share/clor/data-venv/share/jupyter/lab/settings/overrides.json"); overrides = json.loads(settings.read_text()); sys.exit(overrides.get("@jupyterlab/apputils-extension:themes", {}).get("theme") != "JupyterLab Dark")' \
   && gosu user env \
     HOME=/home/user \
     JUPYTER_PLATFORM_DIRS=1 \

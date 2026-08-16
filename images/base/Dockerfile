@@ -573,7 +573,7 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.147.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.227"
+ARG CLAUDE_VERSION="2.1.233"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
