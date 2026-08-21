@@ -36,10 +36,32 @@ ENV LC_ALL="C.UTF-8"
 # post-install scripts also seed root-owned database clusters; startup is
 # suppressed and those unused clusters are removed in this same layer because
 # user services initialize their own XDG data directories.
+# Version source: https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages
+ARG DOCKER_CLI_VERSION="5:29.7.2-1~debian.12~bookworm"
+# Version source: https://github.com/docker/buildx/releases/latest
+ARG DOCKER_BUILDX_VERSION="0.36.1"
+# Version source: https://github.com/docker/compose/releases/latest
+ARG DOCKER_COMPOSE_VERSION="5.5.0"
 RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-rc.d; fi \
   && printf '#!/bin/sh\nexit 101\n' >/usr/sbin/policy-rc.d \
   && chmod 0755 /usr/sbin/policy-rc.d \
-  && apt-get update && apt-get install --yes \
+  && apt-get update \
+  && apt-get install --yes ca-certificates curl gnupg \
+  && install --mode=0755 --directory /etc/apt/keyrings \
+  && curl --fail --silent --show-error --location \
+    https://download.docker.com/linux/debian/gpg \
+    --output /etc/apt/keyrings/docker.asc \
+  && chmod a+r /etc/apt/keyrings/docker.asc \
+  && printf '%s\n' \
+    'Types: deb' \
+    'URIs: https://download.docker.com/linux/debian' \
+    'Suites: bookworm' \
+    'Components: stable' \
+    'Architectures: amd64 arm64' \
+    'Signed-By: /etc/apt/keyrings/docker.asc' \
+    >/etc/apt/sources.list.d/docker.sources \
+  && apt-get update \
+  && apt-get install --no-install-recommends --yes \
   bubblewrap \
   ca-certificates \
   curl \
@@ -118,6 +140,7 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
   pv \
   p7zip-full \
   parallel \
+  docker-ce-cli="${DOCKER_CLI_VERSION}" \
   alsa-utils \
   libasound2-plugins \
   pulseaudio-utils \
@@ -148,6 +171,27 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
   && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
+
+# Docker client plugins are installed independently of the daemon packages.
+# The runtime must provide DOCKER_HOST or /var/run/docker.sock; this image
+# never starts a Docker daemon or creates a local image store.
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  buildx_binary="$("/installers/verified-github-asset" docker/buildx \
+    "v${DOCKER_BUILDX_VERSION}" \
+    "buildx-v${DOCKER_BUILDX_VERSION}.linux-amd64" \
+    "buildx-v${DOCKER_BUILDX_VERSION}.linux-arm64")" \
+  && compose_binary="$("/installers/verified-github-asset" docker/compose \
+    "v${DOCKER_COMPOSE_VERSION}" \
+    docker-compose-linux-x86_64 \
+    docker-compose-linux-aarch64)" \
+  && install --mode=0755 --directory /usr/libexec/docker/cli-plugins \
+  && install --mode=0755 \
+    "${buildx_binary}" /usr/libexec/docker/cli-plugins/docker-buildx \
+  && install --mode=0755 \
+    "${compose_binary}" /usr/libexec/docker/cli-plugins/docker-compose \
+  && docker buildx version \
+  && docker compose version
 
 # Install complete upstream distributions for tools where Debian Bookworm is
 # substantially behind. The shared installer verifies GitHub's published
@@ -347,10 +391,11 @@ COPY images/base/vscode/review-mode \
 RUN groupadd \
     --gid 1000 \
     user \
+  && groupadd --system docker \
   && useradd \
     --uid 1000 \
     --gid user \
-    --groups shadow,audio \
+    --groups docker,shadow,audio \
     --home-dir /home/user \
     --create-home \
     --shell /bin/bash \
@@ -571,9 +616,9 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
-ARG CODEX_VERSION="0.147.0"
+ARG CODEX_VERSION="0.149.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.233"
+ARG CLAUDE_VERSION="2.1.238"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
@@ -702,7 +747,10 @@ RUN test -d /home/user/.codex/packages \
   && test "$(readlink --canonicalize /home/user/.local/bin/codex)" \
     = "$(readlink --canonicalize /home/user/.codex/packages/standalone/current/bin/codex)" \
   && test "$(gosu user env HOME=/home/user \
-    /home/user/.local/bin/codex --version)" = "codex-cli ${CODEX_VERSION}"
+    /home/user/.local/bin/codex --version)" = "codex-cli ${CODEX_VERSION}" \
+  && gosu user env HOME=/home/user \
+    /home/user/.local/bin/claude --version \
+    | grep --fixed-strings --quiet "${CLAUDE_VERSION}"
 # Bash has no long spelling for -c; login mode verifies /etc/profile behavior.
 # The chain is silent, so a failure reports only an exit code. To find out
 # which assertion failed, prefix it with `set -x &&` and rebuild the stage.
@@ -724,6 +772,7 @@ RUN test "${HOME}" = /root \
     bat \
     delta \
     difft \
+    docker \
     duckdb \
     eza \
     fd \
@@ -764,6 +813,14 @@ RUN test "${HOME}" = /root \
     xvfb-run \
     zoxide \
     >/dev/null \
+  && docker buildx version >/dev/null \
+  && docker compose version >/dev/null \
+  && test ! -e /usr/bin/dockerd \
+  && test ! -e /usr/bin/containerd \
+  && test ! -e /lib/systemd/system/docker.service \
+  && test ! -e /usr/lib/systemd/system/docker.service \
+  && test ! -e /etc/init.d/docker \
+  && test ! -e /var/lib/docker \
   && for tool in actionlint direnv dlv gitleaks gopls grpcui grpcurl \
     osv-scanner vale yq; do \
     test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
@@ -793,7 +850,10 @@ RUN test "${HOME}" = /root \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
       && test "${XDG_RUNTIME_DIR}" = /run/user/1000 \
       && test "${SVDIR}" = /home/user/.config/runit/services \
-      && command -v claude clor codex dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
+      && command -v claude clor codex docker dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
+      && docker buildx version >/dev/null \
+      && docker compose version >/dev/null \
+      && id --groups --name | tr ' ' '\n' | grep --fixed-strings --line-regexp --quiet docker \
       && test "$(command -v ya)" = /usr/local/bin/ya \
       && test "$(command -v yazi)" = /usr/local/bin/yazi \
       && test "$(command -v gh)" = /usr/local/bin/gh \
