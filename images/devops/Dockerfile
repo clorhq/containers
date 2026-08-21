@@ -79,6 +79,7 @@ ARG RAILWAY_VERSION="5.28.1"
 ARG RENDER_VERSION="2.22.0"
 ARG DOCTL_VERSION="1.164.0"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   fly_archive="$("/installers/verified-github-asset" superfly/flyctl "v${FLY_VERSION}" \
     "flyctl_${FLY_VERSION}_Linux_x86_64.tar.gz" \
@@ -143,6 +144,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
 # installable through `go install module@version`. Use its provider release
 # artifact and independently verify GitHub's digest for the exact asset.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   tofu_archive="$("/installers/verified-github-asset" opentofu/opentofu "v${OPENTOFU_VERSION}" \
     "tofu_${OPENTOFU_VERSION}_linux_amd64.zip" \
@@ -154,6 +156,7 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
 
 ARG PULUMI_VERSION="3.254.0"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   pulumi_archive="$("/installers/verified-github-asset" pulumi/pulumi "v${PULUMI_VERSION}" \
     "pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" \

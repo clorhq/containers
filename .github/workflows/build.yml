@@ -65,6 +65,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: CLOR_BUILD_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=cacheonly
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=base-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=base-${{ matrix.arch }}
       - uses: docker/login-action@v4
@@ -87,6 +89,8 @@ jobs:
           build-args: CLOR_BUILD_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
           outputs: type=image,name=ghcr.io/clorhq/software-development-base,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true,force-compression=true
           provenance: mode=max
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           sbom: true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
       - name: Export digest
@@ -161,6 +165,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=cacheonly
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=desktop-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=desktop-${{ matrix.arch }}
       - name: Test the DevOps image
@@ -173,6 +179,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=cacheonly
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=devops-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=devops-${{ matrix.arch }}
       - id: build
@@ -184,6 +192,8 @@ jobs:
           build-args: BASE_IMAGE=ghcr.io/clorhq/software-development-base:latest
           outputs: type=image,name=ghcr.io/clorhq/software-development-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true,force-compression=true
           provenance: mode=max
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           sbom: true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
       - name: Test the desktop runtime
@@ -269,6 +279,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: BASE_IMAGE=${{ inputs.data_only && inputs.base_ref || 'ghcr.io/clorhq/software-development-base:latest' }}
           outputs: type=cacheonly
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha,scope=data-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=data-${{ matrix.arch }}
       - id: build
@@ -281,6 +293,8 @@ jobs:
           build-args: BASE_IMAGE=${{ inputs.data_only && inputs.base_ref || 'ghcr.io/clorhq/software-development-base:latest' }}
           outputs: type=image,name=ghcr.io/clorhq/software-development-data,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true,force-compression=true
           provenance: mode=max
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           sbom: true
           cache-from: type=gha,scope=data-${{ matrix.arch }}
       - name: Test Data service readiness

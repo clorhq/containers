@@ -176,6 +176,7 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
 # The runtime must provide DOCKER_HOST or /var/run/docker.sock; this image
 # never starts a Docker daemon or creates a local image store.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   buildx_binary="$("/installers/verified-github-asset" docker/buildx \
     "v${DOCKER_BUILDX_VERSION}" \
@@ -201,6 +202,7 @@ ARG PANDOC_VERSION="3.10.1"
 ARG LNAV_VERSION="0.14.0"
 ARG DUCKDB_VERSION="1.5.5"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   nvim_archive="$("/installers/verified-github-asset" neovim/neovim "v${NEOVIM_VERSION}" \
     nvim-linux-x86_64.tar.gz nvim-linux-arm64.tar.gz)" \
@@ -344,6 +346,7 @@ RUN cargo-binstall --no-confirm --force \
 # the system path. This keeps both public commands in the production
 # filesystem independently of cargo-binstall's package metadata and bin path.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   YAZI_ARCHIVE="$("/installers/verified-github-asset" sxyazi/yazi "v${YAZI_VERSION}" \
     yazi-x86_64-unknown-linux-musl.zip \
@@ -363,6 +366,7 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
 # current release assets. Install the exact upstream artifacts directly and
 # verify the digests GitHub publishes for the selected architecture.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
   --mount=type=cache,target=/downloads,sharing=locked \
   hurl_archive="$("/installers/verified-github-asset" Orange-OpenSource/hurl "${HURL_VERSION}" \
     "hurl-${HURL_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \

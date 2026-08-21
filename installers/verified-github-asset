@@ -19,8 +19,17 @@ esac
 
 ARCHIVE="/downloads/${REPOSITORY//\//-}-${TAG}-${ASSET}"
 METADATA_URL="https://api.github.com/repos/${REPOSITORY}/releases/tags/${TAG}"
+CURL_ARGUMENTS=(
+    --fail
+    --silent
+    --show-error
+    --location
+)
+if [[ -r /run/secrets/github_token ]]; then
+    CURL_ARGUMENTS+=(--header "Authorization: Bearer $(</run/secrets/github_token)")
+fi
 EXPECTED_DIGEST="$(
-    curl --fail --silent --show-error --location "${METADATA_URL}" |
+    curl "${CURL_ARGUMENTS[@]}" "${METADATA_URL}" |
         jq --exit-status --raw-output --arg asset "${ASSET}" '
             .assets[]
             | select(.name == $asset)
@@ -36,7 +45,7 @@ if [[ "${#EXPECTED_DIGEST}" -ne 64 || "${EXPECTED_DIGEST}" == *[!0-9a-f]* ]]; th
 fi
 
 if [[ ! -f "${ARCHIVE}" ]]; then
-    curl --fail --silent --show-error --location \
+    curl "${CURL_ARGUMENTS[@]}" \
         --output "${ARCHIVE}" \
         "https://github.com/${REPOSITORY}/releases/download/${TAG}/${ASSET}"
 fi
