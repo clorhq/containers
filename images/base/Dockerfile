@@ -857,7 +857,7 @@ RUN test "${HOME}" = /root \
       && command -v claude clor codex docker dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
       && docker buildx version >/dev/null \
       && docker compose version >/dev/null \
-      && id --groups --name | tr ' ' '\n' | grep --fixed-strings --line-regexp --quiet docker \
+      && id --groups --name | tr " " "\n" | grep --fixed-strings --line-regexp --quiet docker \
       && test "$(command -v ya)" = /usr/local/bin/ya \
       && test "$(command -v yazi)" = /usr/local/bin/yazi \
       && test "$(command -v gh)" = /usr/local/bin/gh \
