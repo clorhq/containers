@@ -153,6 +153,7 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
   rclone \
   shellcheck \
   shfmt \
+  xauth \
   xvfb \
   fonts-liberation \
   fonts-dejavu-core \
