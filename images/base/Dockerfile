@@ -37,11 +37,14 @@ ENV LC_ALL="C.UTF-8"
 # suppressed and those unused clusters are removed in this same layer because
 # user services initialize their own XDG data directories.
 # Version source: https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages
+ARG DOCKER_ENGINE_VERSION="5:29.7.2-1~debian.12~bookworm"
 ARG DOCKER_CLI_VERSION="5:29.7.2-1~debian.12~bookworm"
-# Version source: https://github.com/docker/buildx/releases/latest
-ARG DOCKER_BUILDX_VERSION="0.36.1"
-# Version source: https://github.com/docker/compose/releases/latest
-ARG DOCKER_COMPOSE_VERSION="5.5.0"
+# Version source: https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages
+ARG CONTAINERD_VERSION="2.3.3-1~debian.12~bookworm"
+# Version source: https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages
+ARG DOCKER_BUILDX_VERSION="0.36.1-1~debian.12~bookworm"
+# Version source: https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages
+ARG DOCKER_COMPOSE_VERSION="5.5.0-1~debian.12~bookworm"
 RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-rc.d; fi \
   && printf '#!/bin/sh\nexit 101\n' >/usr/sbin/policy-rc.d \
   && chmod 0755 /usr/sbin/policy-rc.d \
@@ -140,7 +143,11 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
   pv \
   p7zip-full \
   parallel \
+  containerd.io="${CONTAINERD_VERSION}" \
+  docker-buildx-plugin="${DOCKER_BUILDX_VERSION}" \
+  docker-ce="${DOCKER_ENGINE_VERSION}" \
   docker-ce-cli="${DOCKER_CLI_VERSION}" \
+  docker-compose-plugin="${DOCKER_COMPOSE_VERSION}" \
   alsa-utils \
   libasound2-plugins \
   pulseaudio-utils \
@@ -172,28 +179,6 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
   && ln --symbolic /usr/bin/fdfind /usr/local/bin/fd \
   && ln --symbolic /usr/bin/batcat /usr/local/bin/bat \
   && rm --recursive --force /var/lib/apt/lists/*
-
-# Docker client plugins are installed independently of the daemon packages.
-# The runtime must provide DOCKER_HOST or /var/run/docker.sock; this image
-# never starts a Docker daemon or creates a local image store.
-RUN --mount=type=bind,source=installers,target=/installers,readonly \
-  --mount=type=secret,id=github_token,required=false \
-  --mount=type=cache,target=/downloads,sharing=locked \
-  buildx_binary="$("/installers/verified-github-asset" docker/buildx \
-    "v${DOCKER_BUILDX_VERSION}" \
-    "buildx-v${DOCKER_BUILDX_VERSION}.linux-amd64" \
-    "buildx-v${DOCKER_BUILDX_VERSION}.linux-arm64")" \
-  && compose_binary="$("/installers/verified-github-asset" docker/compose \
-    "v${DOCKER_COMPOSE_VERSION}" \
-    docker-compose-linux-x86_64 \
-    docker-compose-linux-aarch64)" \
-  && install --mode=0755 --directory /usr/libexec/docker/cli-plugins \
-  && install --mode=0755 \
-    "${buildx_binary}" /usr/libexec/docker/cli-plugins/docker-buildx \
-  && install --mode=0755 \
-    "${compose_binary}" /usr/libexec/docker/cli-plugins/docker-compose \
-  && docker buildx version \
-  && docker compose version
 
 # Install complete upstream distributions for tools where Debian Bookworm is
 # substantially behind. The shared installer verifies GitHub's published
@@ -396,7 +381,7 @@ COPY images/base/vscode/review-mode \
 RUN groupadd \
     --gid 1000 \
     user \
-  && groupadd --system docker \
+  && getent group docker >/dev/null \
   && useradd \
     --uid 1000 \
     --gid user \
@@ -609,7 +594,8 @@ COPY --chown=user:user images/base/databases/redis /home/user/.config/redis
 RUN mkdir --parents \
   /etc/clor/services \
   /var/lib/clor \
-  /var/log/clor
+  /var/log/clor \
+  && install --mode=0711 --directory /var/lib/docker
 
 # Bookworm's tmux predates the csi-u format required for Codex to distinguish
 # modified keys safely. Keep the apt package for its runtime dependencies and
@@ -623,7 +609,7 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.149.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.238"
+ARG CLAUDE_VERSION="2.1.240"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
@@ -778,6 +764,8 @@ RUN test "${HOME}" = /root \
     delta \
     difft \
     docker \
+    docker-proxy \
+    dockerd \
     duckdb \
     eza \
     fd \
@@ -818,14 +806,20 @@ RUN test "${HOME}" = /root \
     xvfb-run \
     zoxide \
     >/dev/null \
+  && test "$(dpkg-query --showformat='${Version}' --show docker-ce)" = "${DOCKER_ENGINE_VERSION}" \
+  && test "$(dpkg-query --showformat='${Version}' --show docker-ce-cli)" = "${DOCKER_CLI_VERSION}" \
+  && test "$(dpkg-query --showformat='${Version}' --show containerd.io)" = "${CONTAINERD_VERSION}" \
+  && test "$(dpkg-query --showformat='${Version}' --show docker-buildx-plugin)" = "${DOCKER_BUILDX_VERSION}" \
+  && test "$(dpkg-query --showformat='${Version}' --show docker-compose-plugin)" = "${DOCKER_COMPOSE_VERSION}" \
+  && dockerd --version | grep --fixed-strings --quiet "Docker version 29.7.2" \
+  && containerd --version | grep --fixed-strings --quiet "containerd v2.3.3" \
+  && runc --version | grep --fixed-strings --quiet "runc version 1.4.3" \
+  && command -v containerd-shim-runc-v2 runc >/dev/null \
   && docker buildx version >/dev/null \
   && docker compose version >/dev/null \
-  && test ! -e /usr/bin/dockerd \
-  && test ! -e /usr/bin/containerd \
-  && test ! -e /lib/systemd/system/docker.service \
-  && test ! -e /usr/lib/systemd/system/docker.service \
-  && test ! -e /etc/init.d/docker \
-  && test ! -e /var/lib/docker \
+  && test ! -S /var/run/docker.sock \
+  && test -d /var/lib/docker \
+  && test -z "$(find /var/lib/docker -mindepth 1 -print -quit)" \
   && for tool in actionlint direnv dlv gitleaks gopls grpcui grpcurl \
     osv-scanner vale yq; do \
     test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
@@ -855,7 +849,7 @@ RUN test "${HOME}" = /root \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
       && test "${XDG_RUNTIME_DIR}" = /run/user/1000 \
       && test "${SVDIR}" = /home/user/.config/runit/services \
-      && command -v claude clor codex docker dlv eslint gopls lazygit playwright prettier tsx tsc ya yazi >/dev/null \
+      && command -v claude clor codex containerd containerd-shim-runc-v2 docker docker-proxy dockerd dlv eslint gopls lazygit playwright prettier runc tsx tsc ya yazi >/dev/null \
       && docker buildx version >/dev/null \
       && docker compose version >/dev/null \
       && id --groups --name | tr " " "\n" | grep --fixed-strings --line-regexp --quiet docker \
@@ -886,6 +880,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
+    /usr/local/lib/clor/tests/docker-runtime \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
@@ -934,6 +929,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
+    /usr/local/lib/clor/tests/docker-runtime \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
@@ -964,6 +960,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/claude-plugins \
     /usr/local/lib/clor/tests/clor-api-workbench \
     /usr/local/lib/clor/tests/clor-node-app \
+    /usr/local/lib/clor/tests/docker-runtime \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \

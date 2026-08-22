@@ -93,6 +93,8 @@ jobs:
             github_token=${{ secrets.GITHUB_TOKEN }}
           sbom: true
           cache-from: type=gha,scope=base-${{ matrix.arch }}
+      - name: Smoke test private Docker
+        run: images/base/tests/docker-runtime "ghcr.io/clorhq/software-development-base@${{ steps.build.outputs.digest }}"
       - name: Export digest
         run: |
           mkdir --parents /tmp/digests

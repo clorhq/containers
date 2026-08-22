@@ -87,12 +87,12 @@ are pinned in [`images/base/Dockerfile`](images/base/Dockerfile).
   [OSV-Scanner](https://github.com/google/osv-scanner), curl, wget, OpenSSH,
   rsync, [rclone](https://github.com/rclone/rclone), ping, traceroute, mtr,
   netcat, socat, tcpdump, DNS tools, and whois.
-- **Container tooling:** [Docker CLI](https://github.com/docker/cli),
+- **Container tooling:** [Docker Engine](https://github.com/moby/moby),
+  [Docker CLI](https://github.com/docker/cli), containerd, runc,
   [Buildx](https://github.com/docker/buildx), and
-  [Compose](https://github.com/docker/compose). These are client tools only:
-  the image does not run a Docker daemon or create an image store, so the
-  runtime must provide the DOCKER_HOST environment variable or
-  /var/run/docker.sock.
+  [Compose](https://github.com/docker/compose). Clor starts the rootful daemon
+  only for a space with `docker_access = true`, using private persistent state
+  mounted at `/var/lib/docker`. Package installation never starts the daemon.
 - **Data, documents, and media:** [DuckDB](https://github.com/duckdb/duckdb),
   SQLite, jq, [lnav](https://github.com/tstack/lnav),
   [Pandoc](https://github.com/jgm/pandoc), [Typst](https://github.com/typst/typst),

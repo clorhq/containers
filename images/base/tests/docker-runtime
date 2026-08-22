@@ -1,0 +1,131 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+IMAGE="${1:?usage: docker-runtime IMAGE}"
+VERIFY_OUTER_PORT="${CLOR_DOCKER_SMOKE_VERIFY_OUTER_PORT:-true}"
+WORK_DIR="$(mktemp -d)"
+OUTER_CONTAINER="clor-base-docker-smoke-$$"
+OUTER_VOLUME="clor-base-docker-smoke-$$"
+OUTER_WORKSPACE_VOLUME="clor-base-docker-smoke-workspace-$$"
+
+cleanup() {
+    EXIT_STATUS=$?
+    if [[ "${EXIT_STATUS}" != 0 ]] && docker inspect "${OUTER_CONTAINER}" >/dev/null 2>&1; then
+        docker logs "${OUTER_CONTAINER}" >&2 || true
+        docker exec "${OUTER_CONTAINER}" docker container inspect smoke-web >&2 || true
+        docker exec "${OUTER_CONTAINER}" docker container logs smoke-web >&2 || true
+        if docker cp "${OUTER_CONTAINER}:/var/log/clor/docker-smoke.log" "${WORK_DIR}/docker-smoke.log" >/dev/null 2>&1; then
+            tail --lines 100 "${WORK_DIR}/docker-smoke.log" >&2 || true
+        fi
+    fi
+    docker rm --force "${OUTER_CONTAINER}" >/dev/null 2>&1 || true
+    docker volume rm "${OUTER_VOLUME}" >/dev/null 2>&1 || true
+    docker volume rm "${OUTER_WORKSPACE_VOLUME}" >/dev/null 2>&1 || true
+    rm --recursive --force "${WORK_DIR}"
+}
+trap cleanup EXIT
+
+mkdir --parents "${WORK_DIR}/context"
+printf 'private Docker bind mount\n' >"${WORK_DIR}/marker"
+printf 'hello from nested Docker\n' >"${WORK_DIR}/context/index.html"
+printf '%s\n' \
+    'FROM alpine:3.22' \
+    'RUN apk add --no-cache busybox-extras' \
+    'WORKDIR /site' \
+    'COPY index.html .' \
+    'CMD ["httpd", "-f", "-p", "8080"]' \
+    >"${WORK_DIR}/context/Dockerfile"
+printf '%s\n' \
+    'services:' \
+    '  checker:' \
+    '    image: alpine:3.22' \
+    '    command: ["sh", "-c", "test -f /workspace/marker && echo compose-ok > /workspace/compose-ok"]' \
+    '    volumes:' \
+    '      - /workspace:/workspace' \
+    >"${WORK_DIR}/compose.yaml"
+
+start_outer() {
+    docker run --detach \
+        --privileged \
+        --name "${OUTER_CONTAINER}" \
+        --mount "type=volume,source=${OUTER_VOLUME},target=/var/lib/docker,volume-nocopy" \
+        --mount "type=volume,source=${OUTER_WORKSPACE_VOLUME},target=/workspace,volume-nocopy" \
+        --publish 127.0.0.1::18080 \
+        --entrypoint bash \
+        "${IMAGE}" \
+        --noprofile --norc -c '
+            set -o errexit
+            set -o nounset
+            set -o pipefail
+            mkdir --parents /var/log/clor
+            XDG_RUNTIME_DIR=/var/run/docker dockerd --host unix:///var/run/docker.sock --data-root /var/lib/docker --feature containerd-snapshotter=false >/var/log/clor/docker-smoke.log 2>&1 &
+            DOCKER_PID=$!
+            trap '\''kill -TERM "${DOCKER_PID}"; wait "${DOCKER_PID}"'\'' TERM INT
+            wait "${DOCKER_PID}"
+        ' >/dev/null
+
+    for ATTEMPT in $(seq 1 60); do
+        if docker exec "${OUTER_CONTAINER}" docker info >/dev/null 2>&1; then
+            return
+        fi
+        if ! docker inspect --format '{{.State.Running}}' "${OUTER_CONTAINER}" | grep --fixed-strings --quiet true; then
+            docker logs "${OUTER_CONTAINER}" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    docker exec "${OUTER_CONTAINER}" tail --lines 100 /var/log/clor/docker-smoke.log >&2
+    return 1
+}
+
+check_service() {
+    for ATTEMPT in $(seq 1 30); do
+        if docker exec "${OUTER_CONTAINER}" curl --fail --silent --show-error http://127.0.0.1:18080 | grep --fixed-strings --quiet 'hello from nested Docker'; then
+            break
+        fi
+        if [[ "${ATTEMPT}" = 30 ]]; then
+            return 1
+        fi
+        sleep 1
+    done
+
+    if [[ "${VERIFY_OUTER_PORT}" != true ]]; then
+        return
+    fi
+    HOST_PORT="$(docker port "${OUTER_CONTAINER}" 18080/tcp | sed -n '1s/.*://p')"
+    for ATTEMPT in $(seq 1 30); do
+        if curl --fail --silent --show-error "http://127.0.0.1:${HOST_PORT}" | grep --fixed-strings --quiet 'hello from nested Docker'; then
+            return
+        fi
+        if [[ "${ATTEMPT}" = 30 ]]; then
+            return 1
+        fi
+        sleep 1
+    done
+}
+
+start_outer
+docker cp "${WORK_DIR}/." "${OUTER_CONTAINER}:/workspace"
+docker exec "${OUTER_CONTAINER}" docker pull alpine:3.22 >/dev/null
+docker exec "${OUTER_CONTAINER}" docker build --tag clor-private-docker-smoke:latest /workspace/context >/dev/null
+docker exec "${OUTER_CONTAINER}" docker run --detach \
+    --name smoke-web \
+    --publish 18080:8080 \
+    --volume /workspace:/workspace \
+    clor-private-docker-smoke:latest >/dev/null
+docker exec "${OUTER_CONTAINER}" docker exec smoke-web test -f /workspace/marker
+docker exec "${OUTER_CONTAINER}" docker compose --file /workspace/compose.yaml up --abort-on-container-exit >/dev/null
+docker exec "${OUTER_CONTAINER}" test -f /workspace/compose-ok
+check_service
+
+docker stop --time 30 "${OUTER_CONTAINER}" >/dev/null
+docker rm "${OUTER_CONTAINER}" >/dev/null
+start_outer
+docker exec "${OUTER_CONTAINER}" docker image inspect clor-private-docker-smoke:latest >/dev/null
+docker exec "${OUTER_CONTAINER}" docker container inspect smoke-web >/dev/null
+docker exec "${OUTER_CONTAINER}" docker start smoke-web >/dev/null
+check_service
+
+printf 'private Docker runtime smoke passed for %s\n' "${IMAGE}"
