@@ -65,6 +65,7 @@ RUN if [ -e /usr/sbin/policy-rc.d ]; then cp /usr/sbin/policy-rc.d /tmp/policy-r
     >/etc/apt/sources.list.d/docker.sources \
   && apt-get update \
   && apt-get install --no-install-recommends --yes \
+  bash-completion \
   bubblewrap \
   ca-certificates \
   curl \
@@ -408,6 +409,12 @@ COPY --chown=user:user images/base/vscode/settings.json \
 COPY --chown=user:user images/base/lazygit/config.yml \
   /home/user/.config/lazygit/config.yml
 
+# Seed terminal process monitors with unobtrusive defaults.
+COPY --chown=user:user images/base/btop/btop.conf \
+  /home/user/.config/btop/btop.conf
+COPY --chown=user:user images/base/htop/htoprc \
+  /home/user/.config/htop/htoprc
+
 # Version source: https://open-vsx.org
 # Pull Requests 0.156.0 is the newest release compatible with Code 1.129.0.
 ARG GITHUB_PULL_REQUESTS_VERSION="0.156.0"
@@ -609,7 +616,7 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.149.0"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.240"
+ARG CLAUDE_VERSION="2.1.241"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
@@ -862,10 +869,27 @@ RUN test "${HOME}" = /root \
       && grep --fixed-strings --line-regexp --quiet \
         "disableStartupPopups: true" \
         /home/user/.config/lazygit/config.yml \
+      && test -w /home/user/.config/btop/btop.conf \
+      && grep --fixed-strings --line-regexp --quiet \
+        "theme_background = false" \
+        /home/user/.config/btop/btop.conf \
+      && test -w /home/user/.config/htop/htoprc \
+      && grep --fixed-strings --line-regexp --quiet \
+        "hide_kernel_threads=1" \
+        /home/user/.config/htop/htoprc \
+      && grep --fixed-strings --line-regexp --quiet \
+        "hide_userland_threads=1" \
+        /home/user/.config/htop/htoprc \
       && test -w /home/user/.config/runit/services/postgres/run \
       && test -w /home/user/.config/postgresql/postgresql.conf \
       && test -w /home/user/.config/mysql/my.cnf \
       && test -w /home/user/.config/redis/redis.conf' \
+  && gosu user env HOME=/home/user bash --login -ic \
+    'type _completion_loader >/dev/null \
+      && _completion_loader docker \
+      && complete -p docker >/dev/null \
+      && _completion_loader git \
+      && complete -p git >/dev/null' \
   && bash -n \
     /usr/local/bin/chromium \
     /usr/local/bin/clor-api-workbench \
