@@ -886,9 +886,9 @@ RUN test "${HOME}" = /root \
       && test -w /home/user/.config/redis/redis.conf' \
   && gosu user env HOME=/home/user bash --login -ic \
     'type _completion_loader >/dev/null \
-      && _completion_loader docker \
+      && { _completion_loader docker; test "${?}" = 124; } \
       && complete -p docker >/dev/null \
-      && _completion_loader git \
+      && { _completion_loader git; test "${?}" = 124; } \
       && complete -p git >/dev/null' \
   && bash -n \
     /usr/local/bin/chromium \
