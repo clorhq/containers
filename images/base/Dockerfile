@@ -632,6 +632,7 @@ ARG CLAUDE_VERSION="2.1.250"
 # its temp root and avoid creating a persistent tmp/arg0 tree.
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,id=base-user-downloads,target=/downloads,sharing=locked,uid=1000,gid=1000 \
+  --mount=type=secret,id=github_token,required=false \
   test ! -e /home/user/.codex \
   && gosu user env HOME=/home/user /installers/codex "${CODEX_VERSION}" \
   && gosu user env \

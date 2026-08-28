@@ -8,7 +8,10 @@ VERSION="$1"
 case "$(dpkg --print-architecture)" in
     amd64) ARCH="x86_64" ;;
     arm64) ARCH="aarch64" ;;
-    *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;;
+    *)
+        echo "unsupported architecture: $(dpkg --print-architecture)" >&2
+        exit 1
+        ;;
 esac
 
 TARGET="${ARCH}-unknown-linux-musl"
@@ -18,11 +21,20 @@ ARCHIVE="/downloads/codex-${VERSION}-${TARGET}.tar.gz"
 CHECKSUMS="/downloads/codex-${VERSION}-SHA256SUMS"
 RELEASE_URL="https://github.com/openai/codex/releases/download/rust-v${VERSION}"
 METADATA_URL="https://api.github.com/repos/openai/codex/releases/tags/rust-v${VERSION}"
+CURL_ARGUMENTS=(
+    --fail
+    --silent
+    --show-error
+    --location
+)
+if [[ -r /run/secrets/github_token ]]; then
+    CURL_ARGUMENTS+=(--header "Authorization: Bearer $(</run/secrets/github_token)")
+fi
 
 # Verify the checksum manifest first.
 CHECKSUM_DIGEST="$(
-    curl --fail --silent --show-error --location "${METADATA_URL}" \
-        | jq --exit-status --raw-output --arg asset "${CHECKSUM_ASSET}" '
+    curl "${CURL_ARGUMENTS[@]}" "${METADATA_URL}" |
+        jq --exit-status --raw-output --arg asset "${CHECKSUM_ASSET}" '
             .assets[]
             | select(.name == $asset)
             | .digest
@@ -36,7 +48,7 @@ if [[ "${#CHECKSUM_DIGEST}" -ne 64 || "${CHECKSUM_DIGEST}" == *[!0-9a-f]* ]]; th
 fi
 
 if [[ ! -f "${CHECKSUMS}" ]]; then
-    curl --fail --silent --show-error --location \
+    curl "${CURL_ARGUMENTS[@]}" \
         --output "${CHECKSUMS}" "${RELEASE_URL}/${CHECKSUM_ASSET}"
 fi
 ACTUAL_CHECKSUM_DIGEST="$(sha256sum "${CHECKSUMS}" | awk '{print $1}')"
@@ -59,7 +71,7 @@ if [[ -z "${EXPECTED_DIGEST}" ]]; then
 fi
 
 if [[ ! -f "${ARCHIVE}" ]]; then
-    curl --fail --silent --show-error --location \
+    curl "${CURL_ARGUMENTS[@]}" \
         --output "${ARCHIVE}" "${RELEASE_URL}/${ASSET}"
 fi
 ACTUAL_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
@@ -82,8 +94,8 @@ tar --extract --gzip \
 
 # Use the packaged entrypoint and preserve every bundled file.
 ENTRYPOINT="$(jq --exit-status --raw-output '.entrypoint' "${RELEASE_DIR}/codex-package.json")"
-if [[ -z "${ENTRYPOINT}" || "${ENTRYPOINT}" = /* || "${ENTRYPOINT}" = *..* || \
-      ! -x "${RELEASE_DIR}/${ENTRYPOINT}" ]]; then
+if [[ -z "${ENTRYPOINT}" || "${ENTRYPOINT}" = /* || "${ENTRYPOINT}" = *..* ||
+    ! -x "${RELEASE_DIR}/${ENTRYPOINT}" ]]; then
     echo "invalid Codex package entrypoint: ${ENTRYPOINT}" >&2
     exit 1
 fi
