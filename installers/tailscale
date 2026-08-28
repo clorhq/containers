@@ -1,0 +1,43 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+
+case "$(dpkg --print-architecture)" in
+    amd64)
+        ARCH="amd64"
+        SHA256="36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5"
+        ;;
+    arm64)
+        ARCH="arm64"
+        SHA256="a0fa1b154af8c61f862a2259f559f7396d96c0225f4a863eae2333e1546bbe25"
+        ;;
+    *)
+        echo "unsupported architecture: $(dpkg --print-architecture)" >&2
+        exit 1
+        ;;
+esac
+
+ARCHIVE="/downloads/tailscale_${VERSION}_${ARCH}.tgz"
+URL="https://pkgs.tailscale.com/stable/tailscale_${VERSION}_${ARCH}.tgz"
+ARCHIVE_DIRECTORY="tailscale_${VERSION}_${ARCH}"
+
+if [[ ! -f "${ARCHIVE}" ]]; then
+    curl --fail --silent --show-error --location \
+        --output "${ARCHIVE}" "${URL}"
+fi
+
+printf '%s  %s\n' "${SHA256}" "${ARCHIVE}" | sha256sum --check --strict
+
+TEMP_DIRECTORY="$(mktemp --directory)"
+trap 'rm --recursive --force "${TEMP_DIRECTORY}"' EXIT
+tar --extract --gzip \
+    --directory="${TEMP_DIRECTORY}" \
+    --strip-components=1 \
+    --file="${ARCHIVE}" \
+    "${ARCHIVE_DIRECTORY}/tailscale" \
+    "${ARCHIVE_DIRECTORY}/tailscaled"
+install --mode=0755 "${TEMP_DIRECTORY}/tailscale" /usr/local/bin/tailscale
+install --mode=0755 "${TEMP_DIRECTORY}/tailscaled" /usr/local/bin/tailscaled

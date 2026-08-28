@@ -226,6 +226,12 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/github "${GITHUB_VERSION}"
 
+# Version source: https://github.com/tailscale/tailscale/releases/latest
+ARG TAILSCALE_VERSION="1.102.3"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/tailscale "${TAILSCALE_VERSION}"
+
 # Install Node.js
 # Version source: https://nodejs.org/dist/index.json (latest entry with an LTS name)
 ARG NODE_VERSION="24.18.1"
@@ -600,8 +606,11 @@ COPY --chown=user:user images/base/databases/mysql /home/user/.config/mysql
 COPY --chown=user:user images/base/databases/redis /home/user/.config/redis
 RUN mkdir --parents \
   /etc/clor/services \
+  /run/clor \
   /var/lib/clor \
   /var/log/clor \
+  /var/lib/tailscale \
+  /var/run/tailscale \
   && install --mode=0711 --directory /var/lib/docker
 
 # Bookworm's tmux predates the csi-u format required for Codex to distinguish
@@ -616,7 +625,7 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Version source: https://github.com/openai/codex/releases/latest
 ARG CODEX_VERSION="0.150.1"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.247"
+ARG CLAUDE_VERSION="2.1.250"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
@@ -801,6 +810,8 @@ RUN test "${HOME}" = /root \
     shellcheck \
     shfmt \
     tailwindcss \
+    tailscale \
+    tailscaled \
     typst \
     typos \
     vale \
@@ -827,10 +838,15 @@ RUN test "${HOME}" = /root \
   && test ! -S /var/run/docker.sock \
   && test -d /var/lib/docker \
   && test -z "$(find /var/lib/docker -mindepth 1 -print -quit)" \
+  && for runtime_directory in /var/run/tailscale /var/lib/tailscale /var/log/clor /run/clor; do \
+    test -d "${runtime_directory}" && test -w "${runtime_directory}" || exit 1; \
+  done \
   && for tool in actionlint direnv dlv gitleaks gopls grpcui grpcurl \
-    osv-scanner vale yq; do \
+    osv-scanner tailscale tailscaled vale yq; do \
     test "$(command -v "${tool}")" = "/usr/local/bin/${tool}" || exit 1; \
   done \
+  && tailscale version | grep --fixed-strings --line-regexp --quiet "${TAILSCALE_VERSION}" \
+  && tailscaled --version | grep --fixed-strings --quiet "${TAILSCALE_VERSION}" \
   && test -x /usr/local/lib/clor/gh-dash \
   && test -x "$(pg_config --bindir)/postgres" \
   && test "$(command -v tmux)" = /usr/local/bin/tmux \

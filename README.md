@@ -85,8 +85,10 @@ are pinned in [`images/base/Dockerfile`](images/base/Dockerfile).
   [yq](https://github.com/mikefarah/yq),
   [gitleaks](https://github.com/gitleaks/gitleaks),
   [OSV-Scanner](https://github.com/google/osv-scanner), curl, wget, OpenSSH,
-  rsync, [rclone](https://github.com/rclone/rclone), ping, traceroute, mtr,
-  netcat, socat, tcpdump, DNS tools, and whois.
+  rsync, [rclone](https://github.com/rclone/rclone),
+  [Tailscale](https://tailscale.com/) (`tailscale` and `tailscaled`, not
+  started by the image), ping, traceroute, mtr, netcat, socat, tcpdump, DNS
+  tools, and whois.
 - **Container tooling:** [Docker Engine](https://github.com/moby/moby),
   [Docker CLI](https://github.com/docker/cli), containerd, runc,
   [Buildx](https://github.com/docker/buildx), and
