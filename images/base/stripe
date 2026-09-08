@@ -1,0 +1,60 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+if [[ -n "${STRIPE_API_KEY:-}" ]]; then
+    exec /usr/local/lib/clor/stripe "$@"
+fi
+
+for ARGUMENT in "$@"; do
+    case "${ARGUMENT}" in
+        --) break ;;
+        --api-key | --api-key=*) exec /usr/local/lib/clor/stripe "$@" ;;
+    esac
+done
+
+SECRET_METADATA="$(clor secret list --type stripe-api-key --stdout-format json)"
+if ! SECRET_COUNT="$(
+    jq --exit-status --raw-output \
+        'if (.secrets | type) == "array" then (.secrets | length) else empty end' \
+        <<<"${SECRET_METADATA}" 2>/dev/null
+)"; then
+    printf 'stripe: Clor returned invalid Stripe secret metadata\n' >&2
+    exit 1
+fi
+
+case "${SECRET_COUNT}" in
+    0)
+        printf 'stripe: no Stripe API key is saved. Ask your agent to add one in Secrets.\n' >&2
+        exit 1
+        ;;
+    1) ;;
+    *)
+        printf 'stripe: multiple Stripe API keys are saved. Set STRIPE_API_KEY or choose one of these names.\n' >&2
+        jq --raw-output '.secrets[].name | @json' <<<"${SECRET_METADATA}" >&2
+        exit 1
+        ;;
+esac
+
+if ! SECRET_NAME="$(
+    jq --exit-status --raw-output \
+        '.secrets[0].name | select(type == "string" and length > 0)' \
+        <<<"${SECRET_METADATA}" 2>/dev/null
+)"; then
+    printf 'stripe: Clor returned invalid Stripe secret metadata\n' >&2
+    exit 1
+fi
+
+SECRET_VALUE="$(clor secret get "${SECRET_NAME}" --stdout-format json)"
+if ! STRIPE_API_KEY="$(
+    jq --exit-status --raw-output \
+        'select(type == "string" and length > 0)' \
+        <<<"${SECRET_VALUE}" 2>/dev/null
+)"; then
+    printf 'stripe: secret %q must contain a non-empty JSON string\n' "${SECRET_NAME}" >&2
+    exit 1
+fi
+export STRIPE_API_KEY
+
+exec /usr/local/lib/clor/stripe "$@"

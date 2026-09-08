@@ -78,6 +78,7 @@ are pinned in [`images/base/Dockerfile`](images/base/Dockerfile).
   [Redocly CLI](https://github.com/Redocly/redocly-cli), and the
   [Remotion](https://github.com/remotion-dev/remotion) space helper.
 - **APIs, networking, and security:** [Posting](https://github.com/darrenburns/posting),
+  the [Stripe CLI](https://github.com/stripe/stripe-cli),
   [xh](https://github.com/ducaale/xh), [Hurl](https://github.com/Orange-OpenSource/hurl),
   [grpcurl](https://github.com/fullstorydev/grpcurl),
   [grpcui](https://github.com/fullstorydev/grpcui),

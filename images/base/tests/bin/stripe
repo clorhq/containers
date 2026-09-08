@@ -1,0 +1,17 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+{
+    printf 'key=%q\n' "${STRIPE_API_KEY:-}"
+    printf 'arguments='
+    printf '%q ' "$@"
+    printf '\n'
+} >>"${STRIPE_WRAPPER_TEST_CLI_LOG}"
+
+if [[ -n "${STRIPE_WRAPPER_TEST_CLI_ERROR:-}" ]]; then
+    printf '%s\n' "${STRIPE_WRAPPER_TEST_CLI_ERROR}" >&2
+fi
+printf '%s' "${STRIPE_WRAPPER_TEST_CLI_OUTPUT:-}"
+exit "${STRIPE_WRAPPER_TEST_CLI_STATUS:-0}"

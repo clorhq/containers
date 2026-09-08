@@ -1,0 +1,22 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+VERSION="$1"
+ARCHIVE="$(
+    /installers/verified-github-asset \
+        stripe/stripe-cli \
+        "v${VERSION}" \
+        "stripe_${VERSION}_linux_x86_64.tar.gz" \
+        "stripe_${VERSION}_linux_arm64.tar.gz"
+)"
+EXTRACT_DIRECTORY="$(mktemp --directory)"
+
+tar --extract --gzip \
+    --directory="${EXTRACT_DIRECTORY}" \
+    --file="${ARCHIVE}" \
+    stripe
+install --directory --mode=0755 /usr/local/lib/clor
+install --mode=0755 "${EXTRACT_DIRECTORY}/stripe" /usr/local/lib/clor/stripe
+rm --recursive --force "${EXTRACT_DIRECTORY}"

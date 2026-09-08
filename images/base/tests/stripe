@@ -1,0 +1,228 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+STRIPE_WRAPPER="/usr/local/bin/stripe"
+STRIPE_BINARY="/usr/local/lib/clor/stripe"
+STUB_BINARY="/usr/local/lib/clor/tests/bin/stripe"
+STUBS_DIRECTORY="/usr/local/lib/clor/tests/bin"
+TEST_ROOT="/tmp/clor-stripe-tests"
+CLOR_LOG="${TEST_ROOT}/clor.log"
+CLI_LOG="${TEST_ROOT}/stripe.log"
+OUTPUT_FILE="${TEST_ROOT}/output"
+ERROR_FILE="${TEST_ROOT}/error"
+ORIGINAL_BINARY="${TEST_ROOT}/stripe-official"
+
+fail() {
+    printf 'stripe wrapper test: %s\n' "$*" >&2
+    exit 1
+}
+
+assert_equals() {
+    local EXPECTED="$1"
+    local ACTUAL="$2"
+
+    [[ "${ACTUAL}" == "${EXPECTED}" ]] ||
+        fail "expected '${EXPECTED}', got '${ACTUAL}'"
+}
+
+assert_contains() {
+    local EXPECTED="$1"
+    local FILE="$2"
+
+    grep --fixed-strings --quiet -- "${EXPECTED}" "${FILE}" ||
+        fail "expected '${FILE}' to contain '${EXPECTED}'"
+}
+
+assert_excludes() {
+    local FORBIDDEN="$1"
+    local FILE="$2"
+
+    if grep --fixed-strings --quiet -- "${FORBIDDEN}" "${FILE}"; then
+        fail "expected '${FILE}' not to contain '${FORBIDDEN}'"
+    fi
+}
+
+reset_files() {
+    : >"${CLOR_LOG}"
+    : >"${CLI_LOG}"
+    : >"${OUTPUT_FILE}"
+    : >"${ERROR_FILE}"
+}
+
+run_wrapper() {
+    local STATUS=0
+
+    env -u STRIPE_API_KEY \
+        PATH="${STUBS_DIRECTORY}:${PATH}" \
+        STRIPE_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+        STRIPE_WRAPPER_TEST_CLI_LOG="${CLI_LOG}" \
+        "$@" >"${OUTPUT_FILE}" 2>"${ERROR_FILE}" || STATUS=$?
+    printf '%s' "${STATUS}"
+}
+
+test_paths_and_explicit_key() {
+    reset_files
+    assert_equals "${STRIPE_WRAPPER}" "$(command -v stripe)"
+    [[ -x "${STRIPE_WRAPPER}" ]] || fail "wrapper is not executable"
+    [[ -x "${STRIPE_BINARY}" ]] || fail "official binary is not executable"
+
+    env \
+        PATH="${STUBS_DIRECTORY}:${PATH}" \
+        STRIPE_API_KEY=sk_test_explicit \
+        STRIPE_WRAPPER_TEST_CLOR_LOG="${CLOR_LOG}" \
+        STRIPE_WRAPPER_TEST_CLI_LOG="${CLI_LOG}" \
+        STRIPE_WRAPPER_TEST_CLI_OUTPUT=explicit-ok \
+        "${STRIPE_WRAPPER}" alpha "two words" >"${OUTPUT_FILE}" 2>"${ERROR_FILE}"
+
+    assert_equals explicit-ok "$(<"${OUTPUT_FILE}")"
+    [[ ! -s "${ERROR_FILE}" ]] || fail "explicit key wrote stderr"
+    [[ ! -s "${CLOR_LOG}" ]] || fail "explicit key queried Clor"
+    assert_contains 'key=sk_test_explicit' "${CLI_LOG}"
+    assert_contains 'arguments=alpha two\ words ' "${CLI_LOG}"
+}
+
+test_explicit_api_key_flag() {
+    local SECRET_METADATA
+    local STATUS
+
+    for SECRET_METADATA in \
+        '{"secrets":[]}' \
+        '{"secrets":[{"name":"stripe-api-key-1"}]}' \
+        '{"secrets":[{"name":"stripe-a"},{"name":"stripe-b"}]}'; do
+        reset_files
+        STATUS="$(run_wrapper \
+            STRIPE_WRAPPER_TEST_LIST_JSON="${SECRET_METADATA}" \
+            STRIPE_WRAPPER_TEST_CLI_OUTPUT=flag-ok \
+            "${STRIPE_WRAPPER}" --api-key sk_test_flag balance retrieve)"
+        assert_equals 0 "${STATUS}"
+        assert_equals flag-ok "$(<"${OUTPUT_FILE}")"
+        [[ ! -s "${CLOR_LOG}" ]] || fail "explicit --api-key queried Clor"
+        assert_contains 'arguments=--api-key sk_test_flag balance retrieve ' "${CLI_LOG}"
+    done
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_CLI_OUTPUT=equals-ok \
+        "${STRIPE_WRAPPER}" --api-key=sk_test_equals balance retrieve)"
+    assert_equals 0 "${STATUS}"
+    assert_equals equals-ok "$(<"${OUTPUT_FILE}")"
+    [[ ! -s "${CLOR_LOG}" ]] || fail "explicit --api-key= queried Clor"
+    assert_contains 'arguments=--api-key=sk_test_equals balance retrieve ' "${CLI_LOG}"
+}
+
+test_sole_secret() {
+    local STATUS
+    local KEY="sk_test_vault_marker"
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[{"name":"stripe-api-key-1","type":"stripe-api-key"}]}' \
+        STRIPE_WRAPPER_TEST_VALUE_JSON="\"${KEY}\"" \
+        STRIPE_WRAPPER_TEST_CLI_OUTPUT=vault-ok \
+        "${STRIPE_WRAPPER}" fixtures create --name "two words")"
+
+    assert_equals 0 "${STATUS}"
+    assert_equals vault-ok "$(<"${OUTPUT_FILE}")"
+    [[ ! -s "${ERROR_FILE}" ]] || fail "sole secret wrote stderr"
+    assert_contains 'secret list --type stripe-api-key --stdout-format json' "${CLOR_LOG}"
+    assert_contains 'secret get stripe-api-key-1 --stdout-format json' "${CLOR_LOG}"
+    assert_contains "key=${KEY}" "${CLI_LOG}"
+    assert_contains 'arguments=fixtures create --name two\ words ' "${CLI_LOG}"
+    assert_excludes "${KEY}" "${OUTPUT_FILE}"
+    assert_excludes "${KEY}" "${ERROR_FILE}"
+}
+
+test_missing_and_ambiguous_secrets() {
+    local STATUS
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[]}' \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 1 "${STATUS}"
+    assert_contains 'no Stripe API key is saved' "${ERROR_FILE}"
+    [[ ! -s "${CLI_LOG}" ]] || fail "missing secret ran Stripe"
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[{"name":"stripe-a","type":"stripe-api-key"},{"name":"stripe-b","type":"stripe-api-key"}]}' \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 1 "${STATUS}"
+    assert_contains 'multiple Stripe API keys are saved' "${ERROR_FILE}"
+    assert_contains '"stripe-a"' "${ERROR_FILE}"
+    assert_contains '"stripe-b"' "${ERROR_FILE}"
+    [[ ! -s "${CLI_LOG}" ]] || fail "ambiguous secrets ran Stripe"
+}
+
+test_invalid_vault_responses() {
+    local STATUS
+    local VALUE
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='not-json' \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 1 "${STATUS}"
+    assert_contains 'invalid Stripe secret metadata' "${ERROR_FILE}"
+
+    for VALUE in '""' '{}' 'not-json'; do
+        reset_files
+        STATUS="$(run_wrapper \
+            STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[{"name":"stripe-api-key-1"}]}' \
+            STRIPE_WRAPPER_TEST_VALUE_JSON="${VALUE}" \
+            "${STRIPE_WRAPPER}" version)"
+        assert_equals 1 "${STATUS}"
+        assert_contains 'must contain a non-empty JSON string' "${ERROR_FILE}"
+        [[ ! -s "${CLI_LOG}" ]] || fail "invalid value ran Stripe"
+    done
+}
+
+test_exit_statuses() {
+    local STATUS
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_CLOR_ERROR='Clor list failed' \
+        STRIPE_WRAPPER_TEST_CLOR_LIST_STATUS=23 \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 23 "${STATUS}"
+    assert_contains 'Clor list failed' "${ERROR_FILE}"
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[{"name":"stripe-api-key-1"}]}' \
+        STRIPE_WRAPPER_TEST_CLOR_ERROR='Clor get failed' \
+        STRIPE_WRAPPER_TEST_CLOR_GET_STATUS=24 \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 24 "${STATUS}"
+    assert_contains 'Clor get failed' "${ERROR_FILE}"
+
+    reset_files
+    STATUS="$(run_wrapper \
+        STRIPE_WRAPPER_TEST_LIST_JSON='{"secrets":[{"name":"stripe-api-key-1"}]}' \
+        STRIPE_WRAPPER_TEST_VALUE_JSON='"sk_test_exit_marker"' \
+        STRIPE_WRAPPER_TEST_CLI_STATUS=37 \
+        "${STRIPE_WRAPPER}" version)"
+    assert_equals 37 "${STATUS}"
+    assert_excludes 'sk_test_exit_marker' "${OUTPUT_FILE}"
+    assert_excludes 'sk_test_exit_marker' "${ERROR_FILE}"
+}
+
+main() {
+    rm --recursive --force "${TEST_ROOT}"
+    mkdir --parents "${TEST_ROOT}"
+    cp "${STRIPE_BINARY}" "${ORIGINAL_BINARY}"
+    install --mode=0755 "${STUB_BINARY}" "${STRIPE_BINARY}"
+    trap 'install --mode=0755 "${ORIGINAL_BINARY}" "${STRIPE_BINARY}"' EXIT
+
+    test_paths_and_explicit_key
+    test_explicit_api_key_flag
+    test_sole_secret
+    test_missing_and_ambiguous_secrets
+    test_invalid_vault_responses
+    test_exit_statuses
+}
+
+main "$@"

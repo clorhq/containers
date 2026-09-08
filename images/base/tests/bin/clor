@@ -44,6 +44,46 @@ if [[ "${1:-}" == "github" && "${2:-}" == "auth" ]]; then
     exit 0
 fi
 
+if [[ "${1:-}" == "secret" && "${2:-}" == "list" && -n "${STRIPE_WRAPPER_TEST_CLOR_LOG:-}" ]]; then
+    {
+        printf '%q' "${1}"
+        printf ' %q' "${@:2}"
+        printf '\n'
+    } >>"${STRIPE_WRAPPER_TEST_CLOR_LOG}"
+    if [[ -n "${STRIPE_WRAPPER_TEST_CLOR_ERROR:-}" ]]; then
+        printf '%s\n' "${STRIPE_WRAPPER_TEST_CLOR_ERROR}" >&2
+    fi
+    if [[ "${STRIPE_WRAPPER_TEST_CLOR_LIST_STATUS:-0}" != "0" ]]; then
+        exit "${STRIPE_WRAPPER_TEST_CLOR_LIST_STATUS}"
+    fi
+    if [[ "${STRIPE_WRAPPER_TEST_LIST_JSON+x}" == "x" ]]; then
+        printf '%s' "${STRIPE_WRAPPER_TEST_LIST_JSON}"
+    else
+        printf '%s' '{"secrets":[]}'
+    fi
+    exit 0
+fi
+
+if [[ "${1:-}" == "secret" && "${2:-}" == "get" && -n "${STRIPE_WRAPPER_TEST_CLOR_LOG:-}" ]]; then
+    {
+        printf '%q' "${1}"
+        printf ' %q' "${@:2}"
+        printf '\n'
+    } >>"${STRIPE_WRAPPER_TEST_CLOR_LOG}"
+    if [[ -n "${STRIPE_WRAPPER_TEST_CLOR_ERROR:-}" ]]; then
+        printf '%s\n' "${STRIPE_WRAPPER_TEST_CLOR_ERROR}" >&2
+    fi
+    if [[ "${STRIPE_WRAPPER_TEST_CLOR_GET_STATUS:-0}" != "0" ]]; then
+        exit "${STRIPE_WRAPPER_TEST_CLOR_GET_STATUS}"
+    fi
+    if [[ "${STRIPE_WRAPPER_TEST_VALUE_JSON+x}" == "x" ]]; then
+        printf '%s' "${STRIPE_WRAPPER_TEST_VALUE_JSON}"
+    else
+        printf '%s' '""'
+    fi
+    exit 0
+fi
+
 if [[ "${1:-}" == "account" && "${2:-}" == "login" ]]; then
     cat >/dev/null
 fi

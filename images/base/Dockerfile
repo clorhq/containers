@@ -226,6 +226,14 @@ RUN --mount=type=bind,source=installers,target=/installers,readonly \
   --mount=type=cache,target=/downloads,sharing=locked \
   /installers/github "${GITHUB_VERSION}"
 
+# Install the official Stripe CLI behind the Clor-aware wrapper copied below.
+# Version source: https://github.com/stripe/stripe-cli/releases/latest
+ARG STRIPE_VERSION="1.50.10"
+RUN --mount=type=bind,source=installers,target=/installers,readonly \
+  --mount=type=secret,id=github_token,required=false \
+  --mount=type=cache,target=/downloads,sharing=locked \
+  /installers/stripe "${STRIPE_VERSION}"
+
 # Version source: https://github.com/tailscale/tailscale/releases/latest
 ARG TAILSCALE_VERSION="1.102.3"
 RUN --mount=type=bind,source=installers,target=/installers,readonly \
@@ -593,6 +601,7 @@ RUN product_json="/usr/local/lib/code-server/${VSCODE_VERSION}/lib/vscode/produc
     "${product_json}")" = "true"
 COPY --chmod=0755 images/base/gh /usr/local/bin/gh
 COPY --chmod=0755 images/base/gh-dash /usr/local/bin/gh-dash
+COPY --chmod=0755 images/base/stripe /usr/local/bin/stripe
 COPY --chmod=0755 images/base/clor-node-app /usr/local/bin/clor-node-app
 COPY --chmod=0755 images/base/clor-api-workbench /usr/local/bin/clor-api-workbench
 COPY --chmod=0755 images/base/remotion-space /usr/local/bin/remotion-space
@@ -623,9 +632,9 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
-ARG CODEX_VERSION="0.153.3"
+ARG CODEX_VERSION="0.153.4"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.261"
+ARG CLAUDE_VERSION="2.1.263"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as
@@ -810,6 +819,7 @@ RUN test "${HOME}" = /root \
     remotion-space \
     shellcheck \
     shfmt \
+    stripe \
     tailwindcss \
     tailscale \
     tailscaled \
@@ -849,6 +859,9 @@ RUN test "${HOME}" = /root \
   && tailscale version | grep --fixed-strings --line-regexp --quiet "${TAILSCALE_VERSION}" \
   && tailscaled --version | grep --fixed-strings --quiet "${TAILSCALE_VERSION}" \
   && test -x /usr/local/lib/clor/gh-dash \
+  && test -x /usr/local/lib/clor/stripe \
+  && /usr/local/lib/clor/stripe version \
+    | grep --fixed-strings --line-regexp --quiet "stripe version ${STRIPE_VERSION}" \
   && test -x "$(pg_config --bindir)/postgres" \
   && test "$(command -v tmux)" = /usr/local/bin/tmux \
   && test ! -e /home/user/go/bin \
@@ -873,7 +886,7 @@ RUN test "${HOME}" = /root \
       && test "${PLAYWRIGHT_BROWSERS_PATH}" = /home/user/.cache/ms-playwright \
       && test "${XDG_RUNTIME_DIR}" = /run/user/1000 \
       && test "${SVDIR}" = /home/user/.config/runit/services \
-      && command -v claude clor codex containerd containerd-shim-runc-v2 docker docker-proxy dockerd dlv eslint gopls lazygit playwright prettier runc tsx tsc ya yazi >/dev/null \
+      && command -v claude clor codex containerd containerd-shim-runc-v2 docker docker-proxy dockerd dlv eslint gopls lazygit playwright prettier runc stripe tsx tsc ya yazi >/dev/null \
       && docker buildx version >/dev/null \
       && docker compose version >/dev/null \
       && id --groups --name | tr " " "\n" | grep --fixed-strings --line-regexp --quiet docker \
@@ -881,6 +894,7 @@ RUN test "${HOME}" = /root \
       && test "$(command -v yazi)" = /usr/local/bin/yazi \
       && test "$(command -v gh)" = /usr/local/bin/gh \
       && test "$(command -v gh-dash)" = /usr/local/bin/gh-dash \
+      && test "$(command -v stripe)" = /usr/local/bin/stripe \
       && ya --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && yazi --version | grep --fixed-strings --quiet "${YAZI_VERSION}" \
       && grep --fixed-strings --line-regexp --quiet \
@@ -914,6 +928,7 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
+    /usr/local/bin/stripe \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
@@ -925,6 +940,7 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
+    /usr/local/lib/clor/tests/stripe \
     /home/user/.config/runit/services/postgres/run \
     /home/user/.config/runit/services/postgres/log/run \
     /home/user/.config/runit/services/mysql/run \
@@ -963,6 +979,7 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
+    /usr/local/bin/stripe \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
@@ -974,12 +991,14 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
+    /usr/local/lib/clor/tests/stripe \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /usr/local/lib/clor/tests/bin/remotion-git \
     /usr/local/lib/clor/tests/bin/remotion-npx \
     /usr/local/lib/clor/tests/bin/remotion-package-manager \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
+    /usr/local/lib/clor/tests/bin/stripe \
     /home/user/.config/runit/services/postgres/run \
     /home/user/.config/runit/services/postgres/log/run \
     /home/user/.config/runit/services/mysql/run \
@@ -994,6 +1013,7 @@ RUN test "${HOME}" = /root \
     /usr/local/bin/gh \
     /usr/local/bin/gh-dash \
     /usr/local/bin/remotion-space \
+    /usr/local/bin/stripe \
     /usr/local/lib/clor/start \
     /usr/local/lib/clor/user-services \
     /usr/local/lib/clor/tests/gh \
@@ -1005,12 +1025,14 @@ RUN test "${HOME}" = /root \
     /usr/local/lib/clor/tests/start \
     /usr/local/lib/clor/tests/user-services \
     /usr/local/lib/clor/tests/remotion-space \
+    /usr/local/lib/clor/tests/stripe \
     /usr/local/lib/clor/tests/bin/clor \
     /usr/local/lib/clor/tests/bin/curl \
     /usr/local/lib/clor/tests/bin/remotion-git \
     /usr/local/lib/clor/tests/bin/remotion-npx \
     /usr/local/lib/clor/tests/bin/remotion-package-manager \
     /usr/local/lib/clor/tests/bin/remotion-remotion \
+    /usr/local/lib/clor/tests/bin/stripe \
     /home/user/.config/runit/services/postgres/run \
     /home/user/.config/runit/services/postgres/log/run \
     /home/user/.config/runit/services/mysql/run \
@@ -1025,6 +1047,7 @@ RUN test "${HOME}" = /root \
   && /usr/local/lib/clor/tests/gh \
   && /usr/local/lib/clor/tests/gh-dash \
   && /usr/local/lib/clor/tests/remotion-space \
+  && /usr/local/lib/clor/tests/stripe \
   && /usr/local/lib/clor/tests/start
 RUN gosu user env \
     HOME=/home/user \
