@@ -632,9 +632,9 @@ COPY --chmod=0644 images/base/tmux/tmux.conf /etc/tmux.conf
 # Keep frequently updated agent CLIs in the final filesystem layers so rebuilds
 # reuse every expensive language-tooling and browser layer above.
 # Version source: https://github.com/openai/codex/releases/latest
-ARG CODEX_VERSION="0.155.0"
+ARG CODEX_VERSION="0.155.1"
 # Version source: https://downloads.claude.ai/claude-code-releases/latest
-ARG CLAUDE_VERSION="2.1.277"
+ARG CLAUDE_VERSION="2.1.280"
 # Refuse to initialize over an existing Codex home: the cleanup below is safe
 # only because every entry was created by this installation and initialization.
 # A one-shot app server does not need Codex's command aliases, so treat HOME as

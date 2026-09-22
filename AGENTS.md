@@ -48,6 +48,15 @@ it resolves to the right architecture on any host. Report per-architecture
 manifest digests only when a single platform was explicitly asked for, and
 label them as such. Always give full untruncated `sha256:` values.
 
+A request to build an image and return a new SHA, digest, or ref is not complete
+when the image exists only in the local Docker store. Unless the user explicitly
+asks for a local-only build, publish it through the repository's intended CI
+flow, wait for the per-architecture builds and merge job, and verify the
+resulting registry tag before replying. The reported image must be pullable from
+`ghcr.io/clorhq`; never substitute a local image/config ID (the `.Id` from
+`docker image inspect`) for a registry digest. If publishing is blocked, say so
+plainly and do not claim that a new image exists.
+
 ```bash
 docker buildx imagetools inspect ghcr.io/clorhq/software-development-base:latest
 ```
