@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install --yes \
   arc-theme \
   dbus-x11 \
   fonts-jetbrains-mono \
+  librsvg2-bin \
   novnc \
   tigervnc-standalone-server \
   tigervnc-tools \
@@ -41,6 +42,8 @@ COPY --chown=user:user images/desktop/config/ /home/user/.config/
 ARG CLOR_LOGO_URL="https://clor.com/static/clor-logo-inverse.png"
 ARG CLOR_LOGO_SHA256="2b4caae93d7f6eb9fddaef1376b54e6e299cf3f797d2803d8d7840314825f373"
 # ImageMagick uses single-dash options; render once so XFCE only loads PNGs.
+# Its SVG delegate is rsvg-convert, which the base image's recommends-free
+# ImageMagick install leaves out, hence librsvg2-bin above.
 RUN curl --fail --silent --show-error --location \
     --output /usr/share/backgrounds/clor/clor-logo-inverse.png \
     "${CLOR_LOGO_URL}" \
