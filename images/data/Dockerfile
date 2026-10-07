@@ -43,12 +43,15 @@ RUN uv python install "${PYTHON_VERSION}" \
   done \
   && "${CLOR_DATA_VENV}/bin/python" -m ipykernel install \
     --user --name clor-data --display-name "Clor Data" \
-  && mkdir --parents "${CLOR_DATA_VENV}/etc/jupyter"
+  && mkdir --parents "${CLOR_DATA_VENV}/etc/jupyter" \
+    "${CLOR_DATA_VENV}/share/jupyter/lab/settings"
 
 # sys.prefix/etc/jupyter, not /etc/jupyter: the service sets
 # JUPYTER_PLATFORM_DIRS=1, which drops the system config path. See the file.
 COPY --chown=user:user --chmod=0644 images/data/jupyter/jupyter_server_config.py \
   ${CLOR_DATA_VENV}/etc/jupyter/jupyter_server_config.py
+# Both target directories are created above: a COPY --chmod=0644 into a
+# missing directory creates it with that mode too, leaving it untraversable.
 COPY --chown=user:user --chmod=0644 images/data/jupyter/overrides.json \
   ${CLOR_DATA_VENV}/share/jupyter/lab/settings/overrides.json
 
