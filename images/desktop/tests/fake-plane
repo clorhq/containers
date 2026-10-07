@@ -3,9 +3,11 @@
 
 Serves just enough of the plane and gateway surface for the in-container
 space daemon to boot a space with no tabs, no repository, and no scripts:
-the bootstrap fetch, the space event append, the activity report, and the
-credential attachment list. Everything else is 404, which the daemon
-degrades through by design.
+the bootstrap fetch, the revision poll, the space event append, the
+activity report, and the credential attachment list. Everything else is
+404, which the daemon degrades through by design. The revision poll must
+answer: a 404 there means the space was deleted, and the daemon stops the
+space and exits.
 """
 
 import json
@@ -15,6 +17,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SPACE_ID = sys.argv[1] if len(sys.argv) > 1 else "runtime-test-space"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+# A fixed revision keeps the daemon's cheap change check quiet, so it never
+# refetches the bootstrap and never mistakes this stub for a deleted space.
+REVISION = 1
 
 
 class PlaneHandler(BaseHTTPRequestHandler):
@@ -36,7 +41,10 @@ class PlaneHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == f"/v1/spaces/{SPACE_ID}/bootstrap":
-            self.reply(200, {"space": {"id": SPACE_ID, "name": "runtime test"}})
+            self.reply(200, {"space": {"id": SPACE_ID, "name": "runtime test"}, "revision": REVISION})
+            return
+        if self.path == f"/v1/spaces/{SPACE_ID}/revision":
+            self.reply(200, {"revision": REVISION})
             return
         if self.path == f"/v1/spaces/{SPACE_ID}/credentials":
             self.reply(200, {"credentials": []})
